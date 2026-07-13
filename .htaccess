@@ -1,0 +1,14 @@
+Options -Indexes
+
+<IfModule mod_php7.c>
+    php_flag display_errors off
+</IfModule>
+
+# Запрет прямого доступа к служебным файлам
+<FilesMatch "\.(sql|sh|log|md)$">
+    Require all denied
+</FilesMatch>
+
+<Files "config.php">
+    Require all denied
+</Files>

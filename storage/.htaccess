@@ -1,0 +1,7 @@
+# Разрешаем отдавать статику (фото/документы), но запрещаем исполнение
+# любых скриптов, попавших в папку загрузок.
+<FilesMatch "\.(php|php\d|phtml|phar|cgi|pl|py|sh)$">
+    Require all denied
+</FilesMatch>
+Options -Indexes -ExecCGI
+AddType text/plain .php .php3 .php4 .php5 .php7 .phtml
