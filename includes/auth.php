@@ -34,6 +34,23 @@ function require_login() {
     return $u;
 }
 
+/**
+ * Аналог require_login() для JSON-обработчиков (api/*.php): вместо редиректа
+ * возвращает ошибку, если пользователь не авторизован или ещё обязан сменить
+ * пароль по умолчанию (иначе это требование можно было бы обойти, обращаясь
+ * к API напрямую, минуя страницы).
+ */
+function require_active_user() {
+    $u = current_user();
+    if (!$u) {
+        e_json(array('error' => 'Требуется авторизация'), 401);
+    }
+    if ((int)$u['must_change_password'] === 1) {
+        e_json(array('error' => 'Сначала необходимо сменить пароль. Обновите страницу.'), 403);
+    }
+    return $u;
+}
+
 function attempt_login($fullName, $password) {
     $stmt = db()->prepare('SELECT * FROM users WHERE full_name = ?');
     $stmt->execute(array($fullName));

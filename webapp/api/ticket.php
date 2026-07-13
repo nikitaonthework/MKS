@@ -24,19 +24,24 @@ $mStmt = db()->prepare(
 $mStmt->execute(array($ticketId, $afterId));
 $rows = $mStmt->fetchAll();
 
-$messages = array();
-foreach ($rows as $m) {
-    $aStmt = db()->prepare('SELECT * FROM attachments WHERE message_id = ? ORDER BY id ASC');
-    $aStmt->execute(array($m['id']));
-    $atts = array();
+$attByMsg = array();
+if ($rows) {
+    $ids = array_column($rows, 'id');
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $aStmt = db()->prepare("SELECT * FROM attachments WHERE message_id IN ($in) ORDER BY id ASC");
+    $aStmt->execute($ids);
     foreach ($aStmt->fetchAll() as $a) {
-        $atts[] = array(
+        $attByMsg[$a['message_id']][] = array(
             'is_image' => (bool)$a['is_image'],
             'url' => UPLOAD_URL . '/' . $a['stored_name'],
             'name' => $a['original_name'],
             'size' => $a['file_size'],
         );
     }
+}
+
+$messages = array();
+foreach ($rows as $m) {
     $messages[] = array(
         'id' => (int)$m['id'],
         'body' => $m['body'],
@@ -44,7 +49,7 @@ foreach ($rows as $m) {
         'sender_id' => (int)$m['sender_id'],
         'sender_name' => $m['sender_name'],
         'sender_role' => $m['sender_role'],
-        'attachments' => $atts,
+        'attachments' => isset($attByMsg[$m['id']]) ? $attByMsg[$m['id']] : array(),
     );
 }
 

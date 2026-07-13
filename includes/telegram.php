@@ -63,11 +63,14 @@ function tg_answer_callback($callbackId, $text = '', $showAlert = false) {
 
 /**
  * Отправляет уведомление о новой заявке всем сотрудникам it-отдела,
- * с кнопкой "Забрать заявку себе".
+ * с кнопкой "Забрать заявку себе". $bodyText — исходный (неусечённый) текст
+ * заявки, а не ticket['subject'] (который уже обрезан до ~70 символов для
+ * списков в веб-кабинете) — иначе превью в уведомлении получится короче
+ * задуманного.
  */
-function tg_notify_new_ticket($ticket, $authorName) {
+function tg_notify_new_ticket($ticket, $authorName, $bodyText) {
     $staff = it_staff_list();
-    $preview = make_subject($ticket['subject'], 200);
+    $preview = make_subject($bodyText !== '' ? $bodyText : 'Вложение без текста', 200);
     $text = "🆕 <b>Новая заявка!</b>\n\n"
         . "От: " . h($authorName) . "\n"
         . "№" . (int)$ticket['id'] . "\n\n"

@@ -87,7 +87,17 @@ function handle_callback($cb) {
         return;
     }
 
-    $pdo->prepare('UPDATE tickets SET assigned_to = ? WHERE id = ?')->execute(array($itUser['id'], $ticketId));
+    // Атомарное условие в WHERE не даёт двум сотрудникам, нажавшим кнопку
+    // почти одновременно, оба «выиграть» гонку за одну заявку.
+    $upd = $pdo->prepare('UPDATE tickets SET assigned_to = ? WHERE id = ? AND assigned_to IS NULL');
+    $upd->execute(array($itUser['id'], $ticketId));
+    if ($upd->rowCount() === 0) {
+        $assigneeStmt = $pdo->prepare('SELECT u.full_name FROM tickets t JOIN users u ON u.id = t.assigned_to WHERE t.id = ?');
+        $assigneeStmt->execute(array($ticketId));
+        $assigneeName = $assigneeStmt->fetchColumn();
+        tg_answer_callback($callbackId, 'Заявка уже закреплена за ' . ($assigneeName ? $assigneeName : 'другим сотрудником'), true);
+        return;
+    }
 
     tg_answer_callback($callbackId, 'Заявка №' . $ticketId . ' закреплена за вами');
 

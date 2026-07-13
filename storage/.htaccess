@@ -5,3 +5,7 @@
 </FilesMatch>
 Options -Indexes -ExecCGI
 AddType text/plain .php .php3 .php4 .php5 .php7 .phtml
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>

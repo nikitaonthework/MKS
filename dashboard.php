@@ -38,6 +38,7 @@ $active = 'new';
 
 <script src="assets/js/app.js"></script>
 <script>
+var CSRF_TOKEN = <?php echo json_encode(csrf_token()); ?>;
 initNewTicketForm();
 </script>
 </body>

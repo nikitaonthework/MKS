@@ -46,6 +46,13 @@ function wireAttach(attachBtnId, fileInputId, previewId) {
 
 function showError(box, text) {
     if (!box) return;
+    box.className = 'error-box';
+    box.textContent = text;
+    box.style.display = 'block';
+}
+function showNotice(box, text) {
+    if (!box) return;
+    box.className = 'info-box';
     box.textContent = text;
     box.style.display = 'block';
 }
@@ -74,6 +81,7 @@ function initNewTicketForm() {
         submitBtn.textContent = 'Отправка…';
 
         var fd = new FormData();
+        fd.append('csrf', window.CSRF_TOKEN || '');
         fd.append('body', body);
         pendingFiles.forEach(function (f) { fd.append('files[]', f); });
 
@@ -81,6 +89,9 @@ function initNewTicketForm() {
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (data.ok) {
+                    if (data.attachment_errors && data.attachment_errors.length) {
+                        alert('Заявка отправлена, но не все файлы удалось прикрепить:\n' + data.attachment_errors.join('\n'));
+                    }
                     window.location.href = 'ticket.php?id=' + data.ticket_id;
                 } else {
                     showError(errorBox, data.error || 'Не удалось отправить заявку.');
@@ -180,6 +191,7 @@ function initTicketChat(cfg) {
             sendBtn.disabled = true;
 
             var fd = new FormData();
+            fd.append('csrf', window.CSRF_TOKEN || '');
             fd.append('ticket_id', cfg.ticketId);
             fd.append('body', body);
             pendingFiles.forEach(function (f) { fd.append('files[]', f); });
@@ -196,6 +208,9 @@ function initTicketChat(cfg) {
                         messagesEl.appendChild(row);
                         messagesEl.scrollTop = messagesEl.scrollHeight;
                         lastId = data.message.id;
+                        if (data.attachment_errors && data.attachment_errors.length) {
+                            showNotice(errorBox, 'Не все файлы удалось прикрепить: ' + data.attachment_errors.join('; '));
+                        }
                     } else {
                         showError(errorBox, data.error || 'Не удалось отправить сообщение.');
                     }
@@ -221,6 +236,7 @@ function initTicketChat(cfg) {
             if (!confirm('Открыть заявку повторно?')) return;
             reopenBtn.disabled = true;
             var fd = new FormData();
+            fd.append('csrf', window.CSRF_TOKEN || '');
             fd.append('ticket_id', cfg.ticketId);
             fetch('api/reopen_ticket.php', { method: 'POST', body: fd })
                 .then(function (r) { return r.json(); })

@@ -369,6 +369,9 @@ function sendMessage() {
             messagesEl.appendChild(buildMessageRow(data.message));
             messagesEl.scrollTop = messagesEl.scrollHeight;
             state.lastMessageId = data.message.id;
+            if (data.attachment_errors && data.attachment_errors.length) {
+                toast('Не все файлы удалось прикрепить: ' + data.attachment_errors.join('; '));
+            }
             if (!state.ticketAssigned) {
                 state.ticketAssigned = true;
                 openTicket(state.ticketId);

@@ -2,12 +2,14 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/telegram.php';
 
-$user = current_user();
-if (!$user) {
-    e_json(array('error' => 'Требуется авторизация'), 401);
-}
+$user = require_active_user();
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     e_json(array('error' => 'Метод не поддерживается'), 405);
+}
+
+if (!csrf_check($_POST['csrf'] ?? '')) {
+    e_json(array('error' => 'Сессия истекла, обновите страницу и попробуйте снова.'), 403);
 }
 
 $ticketId = (int)($_POST['ticket_id'] ?? 0);
@@ -40,30 +42,7 @@ try {
     $mStmt->execute(array($ticketId, $user['id'], $body !== '' ? $body : null));
     $messageId = (int)$pdo->lastInsertId();
 
-    $attachments = array();
-    if (!empty($_FILES['files'])) {
-        $files = $_FILES['files'];
-        $count = is_array($files['name']) ? count($files['name']) : 0;
-        if ($count > 10) {
-            $count = 10;
-        }
-        $aStmt = $pdo->prepare(
-            'INSERT INTO attachments (message_id, stored_name, original_name, mime_type, file_size, is_image) VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        for ($i = 0; $i < $count; $i++) {
-            if ($files['error'][$i] !== UPLOAD_ERR_OK) {
-                continue;
-            }
-            $info = save_uploaded_file($files['tmp_name'][$i], $files['name'][$i], $ticketId);
-            if (!$info) {
-                continue;
-            }
-            $aStmt->execute(array(
-                $messageId, $info['stored_name'], $info['original_name'], $info['mime_type'], $info['file_size'], $info['is_image'],
-            ));
-            $attachments[] = $info;
-        }
-    }
+    $uploadResult = process_uploaded_files('files', $ticketId, $messageId, $pdo);
 
     $pdo->prepare('UPDATE tickets SET updated_at = NOW() WHERE id = ?')->execute(array($ticketId));
 
@@ -87,8 +66,9 @@ e_json(array(
         'sender_id' => (int)$user['id'],
         'sender_name' => $user['full_name'],
         'sender_role' => $user['role'],
-        'attachments' => array_map('map_attachment_for_json', $attachments),
+        'attachments' => array_map('map_attachment_for_json', $uploadResult['saved']),
     ),
+    'attachment_errors' => $uploadResult['errors'],
 ));
 
 function map_attachment_for_json($a) {

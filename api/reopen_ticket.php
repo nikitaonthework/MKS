@@ -2,12 +2,14 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/telegram.php';
 
-$user = current_user();
-if (!$user) {
-    e_json(array('error' => 'Требуется авторизация'), 401);
-}
+$user = require_active_user();
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     e_json(array('error' => 'Метод не поддерживается'), 405);
+}
+
+if (!csrf_check($_POST['csrf'] ?? '')) {
+    e_json(array('error' => 'Сессия истекла, обновите страницу и попробуйте снова.'), 403);
 }
 
 $ticketId = (int)($_POST['ticket_id'] ?? 0);

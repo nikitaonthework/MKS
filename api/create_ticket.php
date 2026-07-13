@@ -2,13 +2,14 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/telegram.php';
 
-$user = current_user();
-if (!$user) {
-    e_json(array('error' => 'Требуется авторизация'), 401);
-}
+$user = require_active_user();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     e_json(array('error' => 'Метод не поддерживается'), 405);
+}
+
+if (!csrf_check($_POST['csrf'] ?? '')) {
+    e_json(array('error' => 'Сессия истекла, обновите страницу и попробуйте снова.'), 403);
 }
 
 $body = trim($_POST['body'] ?? '');
@@ -31,7 +32,7 @@ try {
     $stmt->execute(array($ticketId, $user['id'], $body !== '' ? $body : null));
     $messageId = (int)$pdo->lastInsertId();
 
-    $savedFiles = save_files_from_request('files', $ticketId, $messageId, $pdo);
+    $uploadResult = process_uploaded_files('files', $ticketId, $messageId, $pdo);
 
     $pdo->commit();
 } catch (Exception $ex) {
@@ -43,38 +44,6 @@ try {
 $fresh = $pdo->prepare('SELECT * FROM tickets WHERE id = ?');
 $fresh->execute(array($ticketId));
 $ticketRow = $fresh->fetch();
-tg_notify_new_ticket($ticketRow, $user['full_name']);
+tg_notify_new_ticket($ticketRow, $user['full_name'], $body);
 
-e_json(array('ok' => true, 'ticket_id' => $ticketId));
-
-/**
- * Сохраняет загруженные файлы из $_FILES[$field] (может быть массив) и создаёт записи attachments.
- */
-function save_files_from_request($field, $ticketId, $messageId, $pdo) {
-    $saved = array();
-    if (empty($_FILES[$field])) {
-        return $saved;
-    }
-    $files = $_FILES[$field];
-    $count = is_array($files['name']) ? count($files['name']) : 0;
-    if ($count > 10) {
-        $count = 10;
-    }
-    $stmt = $pdo->prepare(
-        'INSERT INTO attachments (message_id, stored_name, original_name, mime_type, file_size, is_image) VALUES (?, ?, ?, ?, ?, ?)'
-    );
-    for ($i = 0; $i < $count; $i++) {
-        if ($files['error'][$i] !== UPLOAD_ERR_OK) {
-            continue;
-        }
-        $info = save_uploaded_file($files['tmp_name'][$i], $files['name'][$i], $ticketId);
-        if (!$info) {
-            continue;
-        }
-        $stmt->execute(array(
-            $messageId, $info['stored_name'], $info['original_name'], $info['mime_type'], $info['file_size'], $info['is_image'],
-        ));
-        $saved[] = $info;
-    }
-    return $saved;
-}
+e_json(array('ok' => true, 'ticket_id' => $ticketId, 'attachment_errors' => $uploadResult['errors']));

@@ -141,6 +141,7 @@ if ($senderIds) {
 
 <script src="assets/js/app.js"></script>
 <script>
+var CSRF_TOKEN = <?php echo json_encode(csrf_token()); ?>;
 initTicketChat({
     ticketId: <?php echo (int)$ticket['id']; ?>,
     canReply: <?php echo $canReply ? 'true' : 'false'; ?>,

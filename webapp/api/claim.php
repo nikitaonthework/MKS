@@ -18,7 +18,12 @@ if (!empty($ticket['assigned_to'])) {
     e_json(array('error' => 'Заявка уже закреплена'), 409);
 }
 
-$pdo->prepare('UPDATE tickets SET assigned_to = ? WHERE id = ?')->execute(array($user['id'], $ticketId));
+// Атомарное условие в WHERE не даёт двум одновременным запросам оба «выиграть» гонку.
+$upd = $pdo->prepare('UPDATE tickets SET assigned_to = ? WHERE id = ? AND assigned_to IS NULL');
+$upd->execute(array($user['id'], $ticketId));
+if ($upd->rowCount() === 0) {
+    e_json(array('error' => 'Заявка уже закреплена другим сотрудником'), 409);
+}
 
 $staff = it_staff_list();
 foreach ($staff as $s) {
