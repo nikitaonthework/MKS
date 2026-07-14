@@ -402,6 +402,9 @@ function boot() {
     document.getElementById('back-btn').addEventListener('click', function () {
         showView('list');
         setTitle(TAB_TITLES[state.tab]);
+        // Список мог устареть, пока мы были в диалоге заявки (закрыли/
+        // открыли/забрали заявку) — перезагружаем его при возврате.
+        loadList(state.tab);
     });
 
     document.getElementById('menu-btn').addEventListener('click', function () {
