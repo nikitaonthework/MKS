@@ -1,12 +1,22 @@
 <?php
 /**
  * Автономная диагностика: может ли сервер достучаться до api.telegram.org.
- * Не зависит от config.php/includes — показывает "сырую" правду, даже если
- * где-то на сервере лежит старая версия других файлов или включён opcache.
+ * Показывает "сырую" правду напрямую через curl, даже если где-то на сервере
+ * лежит старая версия других файлов или включён opcache. Если в config.php
+ * задан TG_PROXY, дополнительно проверяет соединение через него.
  * Откройте в браузере: https://ваш-сайт/bot/diagnose.php
  * Удалите после диагностики.
  */
 header('Content-Type: text/plain; charset=utf-8');
+
+$proxy = '';
+$configPath = __DIR__ . '/../config/config.php';
+if (is_file($configPath)) {
+    require_once $configPath;
+    if (defined('TG_PROXY')) {
+        $proxy = TG_PROXY;
+    }
+}
 
 echo "PHP version: " . PHP_VERSION . "\n";
 echo "curl extension: " . (extension_loaded('curl') ? 'да' : 'НЕТ — обратитесь в поддержку хостинга') . "\n";
@@ -66,7 +76,39 @@ if ($ok === false) {
             echo "  Отправьте этот текст целиком в поддержку хостинга — они смогут сказать,\n"
                 . "  блокируют ли они исходящие HTTPS-запросы с сервера.\n";
     }
+    echo "\nЕсли хостинг подтвердит блокировку и не сможет её снять — можно\n"
+        . "направить запросы к Telegram через прокси-сервер: укажите его\n"
+        . "адрес в константе TG_PROXY в config/config.php и обновите эту\n"
+        . "страницу — ниже появится проверка соединения через прокси.\n";
 } else {
-    echo "Соединение с Telegram работает. Значит, дело не в сети/SSL, а в чём-то\n"
-        . "другом (например, ещё не обновлён файл includes/telegram.php на сервере).\n";
+    echo "Прямое соединение с Telegram работает. Значит, дело не в сети/SSL,\n"
+        . "а в чём-то другом (например, ещё не обновлён файл includes/telegram.php\n"
+        . "на сервере, или неверный APP_URL — см. bot/setwebhook.php).\n";
+}
+
+if ($proxy !== '') {
+    echo "\n----------------------------------------\n";
+    echo "TG_PROXY задан в config.php, проверяю соединение через прокси…\n\n";
+    $ch2 = curl_init('https://api.telegram.org');
+    curl_setopt_array($ch2, array(
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_NOBODY => true,
+        CURLOPT_PROXY => $proxy,
+    ));
+    $ok2 = curl_exec($ch2);
+    $errno2 = curl_errno($ch2);
+    $err2 = curl_error($ch2);
+    $info2 = curl_getinfo($ch2);
+    curl_close($ch2);
+
+    echo "Подключение к https://api.telegram.org через прокси:\n";
+    echo "  успех: " . ($ok2 !== false ? 'да' : 'НЕТ') . "\n";
+    echo "  curl_errno: $errno2\n";
+    echo "  curl_error: " . ($err2 !== '' ? $err2 : '(нет)') . "\n";
+    echo "  http_code: " . (isset($info2['http_code']) ? $info2['http_code'] : '-') . "\n";
+    if ($ok2 !== false) {
+        echo "\nОтлично, через прокси соединение работает — бот будет использовать\n"
+            . "его автоматически для всех запросов к Telegram.\n";
+    }
 }

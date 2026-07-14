@@ -8,12 +8,19 @@ define('TG_API_BASE', 'https://api.telegram.org/bot' . TG_BOT_TOKEN . '/');
  */
 function tg_api($method, $params = array()) {
     $ch = curl_init(TG_API_BASE . $method);
-    curl_setopt_array($ch, array(
+    $options = array(
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $params,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 15,
-    ));
+    );
+    // Если прямое соединение с Telegram заблокировано хостингом (см.
+    // bot/diagnose.php), запросы можно направить через прокси — задаётся
+    // константой TG_PROXY в config/config.php.
+    if (defined('TG_PROXY') && TG_PROXY !== '') {
+        $options[CURLOPT_PROXY] = TG_PROXY;
+    }
+    curl_setopt_array($ch, $options);
     $response = curl_exec($ch);
     $err = curl_error($ch);
     $errno = curl_errno($ch);

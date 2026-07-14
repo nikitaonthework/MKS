@@ -22,6 +22,14 @@ define('APP_URL', 'https://example.com');
 // и укажите такое же в bot/setwebhook.php)
 define('TG_WEBHOOK_SECRET', 'change-this-secret');
 
+// Если ваш хостинг блокирует исходящие HTTPS-запросы к api.telegram.org
+// (проверяется через bot/diagnose.php), укажите здесь адрес прокси-сервера,
+// через который PHP будет обращаться к Telegram, например:
+//   'http://login:pass@1.2.3.4:8080'  — HTTP(S) прокси
+//   'socks5://1.2.3.4:1080'           — SOCKS5 прокси
+// Оставьте пустой строкой, если прокси не нужен (соединение работает напрямую).
+define('TG_PROXY', '');
+
 // ---- Прочее -------------------------------------------------------------
 define('APP_TIMEZONE', 'Europe/Moscow');
 define('UPLOAD_DIR', __DIR__ . '/../storage/uploads');
