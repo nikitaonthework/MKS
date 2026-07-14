@@ -16,13 +16,20 @@ function tg_api($method, $params = array()) {
     ));
     $response = curl_exec($ch);
     $err = curl_error($ch);
+    $errno = curl_errno($ch);
     curl_close($ch);
     if ($response === false) {
         error_log('Telegram API error (' . $method . '): ' . $err);
-        return null;
+        // Возвращаем причину сбоя вместо null, чтобы её можно было увидеть
+        // прямо в ответе bot/setwebhook.php, без доступа к логам хостинга.
+        return array('ok' => false, 'error_source' => 'curl', 'curl_errno' => $errno, 'curl_error' => $err);
     }
     $data = json_decode($response, true);
-    if (!$data || empty($data['ok'])) {
+    if ($data === null) {
+        error_log('Telegram API returned invalid response (' . $method . '): ' . $response);
+        return array('ok' => false, 'error_source' => 'invalid_response', 'raw_response' => $response);
+    }
+    if (empty($data['ok'])) {
         error_log('Telegram API failed (' . $method . '): ' . $response);
     }
     return $data;
