@@ -33,7 +33,10 @@ define('TG_PROXY', 'socks5h://109.120.157.74:1080');
 // ---- Прочее -------------------------------------------------------------
 define('APP_TIMEZONE', 'Europe/Moscow');
 define('UPLOAD_DIR', __DIR__ . '/../storage/uploads');
-define('UPLOAD_URL', '/storage/uploads');
+// UPLOAD_URL вычисляется из APP_URL, чтобы корректно работать и при
+// установке в корень домена, и в подпапку (например https://site.ru/mks) —
+// иначе ссылки на вложения будут вести мимо подпапки.
+define('UPLOAD_URL', rtrim(parse_url(APP_URL, PHP_URL_PATH), '/') . '/storage/uploads');
 define('MAX_UPLOAD_SIZE', 15 * 1024 * 1024); // 15 МБ на файл
 define('CLINIC_NAME', 'IT Service Desk');
 

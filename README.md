@@ -25,6 +25,10 @@
 /bot/poll.php              — опрос Telegram по cron, альтернатива вебхуку (способ Б)
 /bot/diagnose.php          — проверка, может ли сервер достучаться до Telegram
 /webapp/                   — Telegram Mini App для сотрудников IT-отдела
+/webapp/tg-sdk.php         — отдаёт telegram-web-app.js со своего домена
+                              (кэширует файл с telegram.org через сервер,
+                              на случай если у клиента заблокирован сам
+                              домен telegram.org)
 ```
 
 ## 1. Требования к хостингу

@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>IT Service Desk — панель</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="tg-sdk.php"></script>
 <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body>
