@@ -98,6 +98,25 @@ CREATE TABLE IF NOT EXISTS bot_state (
 INSERT INTO bot_state (name, value) VALUES ('update_offset', '0')
 ON DUPLICATE KEY UPDATE name = name;
 
+-- ---------------------------------------------------------------------
+-- Очередь уведомлений в Telegram. Веб-запросы (создание заявки, ответ,
+-- закрытие и т.д.) только кладут сюда строку — это мгновенная операция
+-- без обращения к сети — а реальную отправку через Telegram API делает
+-- bot/poll.php при каждом запуске по cron. Так медленный/недоступный
+-- прокси до Telegram никогда не блокирует и не ломает ответ сайта.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notification_queue (
+    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    chat_id       BIGINT NOT NULL,
+    text          TEXT NOT NULL,
+    reply_markup  TEXT NULL,
+    status        ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
+    attempts      TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sent_at       DATETIME NULL,
+    KEY idx_notification_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ---------------------------------------------------------------------

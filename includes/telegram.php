@@ -77,6 +77,25 @@ function tg_answer_callback($callbackId, $text = '', $showAlert = false) {
 }
 
 /**
+ * Кладёт сообщение в очередь (таблица notification_queue) вместо того,
+ * чтобы отправлять его в Telegram прямо сейчас. Используется для всех
+ * уведомлений, которые запускаются из веб-запросов сотрудников/IT-отдела
+ * (создание заявки, ответ, закрытие, закрепление) — это мгновенная
+ * операция с базой данных, без обращения к сети, поэтому медленный или
+ * временно недоступный прокси до Telegram никогда не блокирует и не
+ * ломает ответ сайта пользователю. Реальную отправку делает bot/poll.php
+ * при каждом запуске по cron (см. README, раздел про polling).
+ */
+function tg_queue_message($chatId, $text, $replyMarkup = null) {
+    $stmt = db()->prepare('INSERT INTO notification_queue (chat_id, text, reply_markup) VALUES (?, ?, ?)');
+    $stmt->execute(array(
+        $chatId,
+        $text,
+        $replyMarkup !== null ? json_encode($replyMarkup, JSON_UNESCAPED_UNICODE) : null,
+    ));
+}
+
+/**
  * Отправляет уведомление о новой заявке всем сотрудникам it-отдела,
  * с кнопкой "Забрать заявку себе". $bodyText — исходный (неусечённый) текст
  * заявки, а не ticket['subject'] (который уже обрезан до ~70 символов для
@@ -106,7 +125,7 @@ function tg_notify_new_ticket($ticket, $authorName, $bodyText) {
         if (empty($s['telegram_id'])) {
             continue;
         }
-        tg_send_message($s['telegram_id'], $text, $keyboard);
+        tg_queue_message($s['telegram_id'], $text, $keyboard);
     }
 }
 
@@ -124,7 +143,7 @@ function tg_notify_new_reply($ticket, $authorName) {
         return;
     }
     $text = "💬 <b>Новый ответ по заявке №" . (int)$ticket['id'] . "</b>\nОт: " . h($authorName);
-    tg_send_message($telegramId, $text);
+    tg_queue_message($telegramId, $text);
 }
 
 function tg_notify_reopened($ticket, $authorName) {
@@ -138,7 +157,7 @@ function tg_notify_reopened($ticket, $authorName) {
         if (!empty($ticket['assigned_to']) && (int)$ticket['assigned_to'] !== (int)$s['id']) {
             continue;
         }
-        tg_send_message($s['telegram_id'], $text);
+        tg_queue_message($s['telegram_id'], $text);
     }
 }
 

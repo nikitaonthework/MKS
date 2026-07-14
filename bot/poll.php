@@ -1,8 +1,10 @@
 <?php
 /**
  * Альтернатива вебхуку: получает новые сообщения/нажатия кнопок у Telegram
- * через getUpdates и обрабатывает их — без необходимости, чтобы Telegram
- * сам стучался на ваш сайт. Запускайте этот скрипт регулярно через
+ * через getUpdates и обрабатывает их, а также отправляет накопившиеся в
+ * очереди уведомления (notification_queue) — без необходимости, чтобы
+ * Telegram сам стучался на ваш сайт, и без прямых обращений к Telegram API
+ * из веб-запросов сотрудников. Запускайте этот скрипт регулярно через
  * Cron Jobs хостинга (например, раз в минуту):
  *
  *   * * * * * php /home/user/public_html/mks/bot/poll.php >/dev/null 2>&1
@@ -32,11 +34,12 @@ if (!$isCli) {
 }
 
 function out($text) {
-    global $isCli;
     echo $text . ($GLOBALS['isCli'] ? PHP_EOL : "\n");
 }
 
 $pdo = db();
+
+// ---- 1. Входящие апдейты (сообщения боту, нажатия кнопок) -------------
 $stmt = $pdo->prepare('SELECT value FROM bot_state WHERE name = ?');
 $stmt->execute(array('update_offset'));
 $offsetValue = $stmt->fetchColumn();
@@ -57,20 +60,49 @@ $result = tg_api('getUpdates', array(
 
 if (empty($result['ok']) || !isset($result['result'])) {
     out('Ошибка получения обновлений от Telegram: ' . json_encode($result, JSON_UNESCAPED_UNICODE));
-    exit;
-}
-
-$count = 0;
-foreach ($result['result'] as $update) {
-    if (isset($update['message'])) {
-        bot_handle_message($update['message']);
-    } elseif (isset($update['callback_query'])) {
-        bot_handle_callback($update['callback_query']);
+} else {
+    $count = 0;
+    foreach ($result['result'] as $update) {
+        if (isset($update['message'])) {
+            bot_handle_message($update['message']);
+        } elseif (isset($update['callback_query'])) {
+            bot_handle_callback($update['callback_query']);
+        }
+        $offset = (int)$update['update_id'] + 1;
+        $count++;
     }
-    $offset = (int)$update['update_id'] + 1;
-    $count++;
+    $pdo->prepare('UPDATE bot_state SET value = ? WHERE name = ?')->execute(array((string)$offset, 'update_offset'));
+    out('Обработано входящих обновлений: ' . $count);
 }
 
-$pdo->prepare('UPDATE bot_state SET value = ? WHERE name = ?')->execute(array((string)$offset, 'update_offset'));
+// ---- 2. Исходящие уведомления из очереди -------------------------------
+// Независимо от результата getUpdates выше — отправляем то, что успели
+// накопить веб-запросы сотрудников (создание заявки, ответ, закрытие,
+// закрепление и т.п.), пока этот скрипт не запускался.
+$pending = $pdo->query(
+    "SELECT * FROM notification_queue WHERE status = 'pending' ORDER BY id ASC LIMIT 50"
+)->fetchAll();
 
-out('Обработано обновлений: ' . $count);
+$sentCount = 0;
+$failedCount = 0;
+foreach ($pending as $n) {
+    $replyMarkup = $n['reply_markup'] !== null ? json_decode($n['reply_markup'], true) : null;
+    $sendResult = tg_send_message($n['chat_id'], $n['text'], $replyMarkup);
+
+    if (!empty($sendResult['ok'])) {
+        $pdo->prepare("UPDATE notification_queue SET status = 'sent', sent_at = NOW() WHERE id = ?")
+            ->execute(array($n['id']));
+        $sentCount++;
+    } else {
+        $attempts = (int)$n['attempts'] + 1;
+        // После нескольких неудачных попыток помечаем как failed, чтобы не
+        // пытаться бесконечно (например, сотрудник ни разу не писал боту
+        // /start, и Telegram отказывается доставить сообщение).
+        $newStatus = $attempts >= 5 ? 'failed' : 'pending';
+        $pdo->prepare('UPDATE notification_queue SET attempts = ?, status = ? WHERE id = ?')
+            ->execute(array($attempts, $newStatus, $n['id']));
+        $failedCount++;
+    }
+}
+
+out('Отправлено уведомлений из очереди: ' . $sentCount . ($failedCount ? (', с ошибкой: ' . $failedCount) : ''));

@@ -53,7 +53,11 @@ try {
     e_json(array('error' => 'Не удалось отправить сообщение'), 500);
 }
 
-respond_json_then_continue(array(
+if ($isOwner) {
+    tg_notify_new_reply($ticket, $user['full_name']);
+}
+
+e_json(array(
     'ok' => true,
     'message' => array(
         'id' => $messageId,
@@ -66,10 +70,6 @@ respond_json_then_continue(array(
     ),
     'attachment_errors' => $uploadResult['errors'],
 ));
-
-if ($isOwner) {
-    tg_notify_new_reply($ticket, $user['full_name']);
-}
 
 function map_attachment_for_json($a) {
     return array(

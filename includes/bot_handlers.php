@@ -96,6 +96,6 @@ function bot_handle_callback($cb) {
         if ((int)$s['id'] === (int)$itUser['id']) {
             continue; // уже получил ответ через answerCallbackQuery + отредактированное сообщение
         }
-        tg_send_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($itUser['full_name']));
+        tg_queue_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($itUser['full_name']));
     }
 }

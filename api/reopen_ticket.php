@@ -27,6 +27,6 @@ if (!$isOwner || $ticket['status'] !== 'closed') {
 
 db()->prepare("UPDATE tickets SET status = 'open', closed_at = NULL, updated_at = NOW() WHERE id = ?")->execute(array($ticketId));
 
-respond_json_then_continue(array('ok' => true));
-
 tg_notify_reopened($ticket, $user['full_name']);
+
+e_json(array('ok' => true));

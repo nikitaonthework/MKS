@@ -18,37 +18,6 @@ function e_json($data, $code = 200) {
     exit;
 }
 
-/**
- * Как e_json(), но не завершает скрипт — используется, когда после ответа
- * клиенту нужно ещё сделать что-то небыстрое (например, отправить
- * уведомление в Telegram через прокси). Пытается отдать ответ клиенту
- * немедленно (fastcgi_finish_request на PHP-FPM, иначе — сброс буфера),
- * чтобы медленный/недоступный Telegram не заставлял пользователя ждать
- * или не приводил к обрыву запроса по лимиту времени выполнения.
- */
-function respond_json_then_continue($data, $code = 200) {
-    http_response_code($code);
-    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    header('Content-Type: application/json; charset=utf-8');
-    header('Content-Length: ' . strlen($json));
-    header('Connection: close');
-    echo $json;
-
-    if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request();
-        return;
-    }
-
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_write_close();
-    }
-    ignore_user_abort(true);
-    while (ob_get_level() > 0) {
-        ob_end_flush();
-    }
-    flush();
-}
-
 function csrf_token() {
     if (empty($_SESSION['csrf'])) {
         $_SESSION['csrf'] = bin2hex(random_bytes(32));

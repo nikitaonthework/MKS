@@ -25,12 +25,12 @@ if ($upd->rowCount() === 0) {
     e_json(array('error' => 'Заявка уже закреплена другим сотрудником'), 409);
 }
 
-respond_json_then_continue(array('ok' => true));
-
 $staff = it_staff_list();
 foreach ($staff as $s) {
     if (empty($s['telegram_id']) || (int)$s['id'] === (int)$user['id']) {
         continue;
     }
-    tg_send_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($user['full_name']));
+    tg_queue_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($user['full_name']));
 }
+
+e_json(array('ok' => true));
