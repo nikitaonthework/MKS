@@ -41,9 +41,13 @@ try {
     e_json(array('error' => 'Не удалось создать заявку'), 500);
 }
 
+// Отдаём ответ браузеру сразу — заявка уже сохранена (commit выше), а
+// отправка уведомлений в Telegram (через прокси) может быть медленной и
+// не должна заставлять сотрудника ждать или упираться в лимит времени
+// выполнения скрипта на хостинге.
+respond_json_then_continue(array('ok' => true, 'ticket_id' => $ticketId, 'attachment_errors' => $uploadResult['errors']));
+
 $fresh = $pdo->prepare('SELECT * FROM tickets WHERE id = ?');
 $fresh->execute(array($ticketId));
 $ticketRow = $fresh->fetch();
 tg_notify_new_ticket($ticketRow, $user['full_name'], $body);
-
-e_json(array('ok' => true, 'ticket_id' => $ticketId, 'attachment_errors' => $uploadResult['errors']));

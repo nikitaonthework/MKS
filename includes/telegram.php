@@ -12,7 +12,8 @@ function tg_api($method, $params = array()) {
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $params,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 15,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 8,
     );
     // Если прямое соединение с Telegram заблокировано хостингом (см.
     // bot/diagnose.php), запросы можно направить через прокси — задаётся

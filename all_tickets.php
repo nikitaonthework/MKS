@@ -10,6 +10,7 @@ $stmt = db()->prepare(
      LEFT JOIN users it ON it.id = t.assigned_to
      ORDER BY t.updated_at DESC'
 );
+$stmt->execute();
 $tickets = $stmt->fetchAll();
 ?>
 <!doctype html>
