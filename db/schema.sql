@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS duty_hours (
     KEY idx_duty_user_date (it_user_id, work_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------
+-- Служебное хранилище состояния бота (используется bot/poll.php, если
+-- вместо вебхука выбран режим опроса Telegram по cron — см. README).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bot_state (
+    name   VARCHAR(50) PRIMARY KEY,
+    value  VARCHAR(255) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO bot_state (name, value) VALUES ('update_offset', '0')
+ON DUPLICATE KEY UPDATE name = name;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ---------------------------------------------------------------------
