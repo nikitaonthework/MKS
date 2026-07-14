@@ -87,12 +87,20 @@ function tg_answer_callback($callbackId, $text = '', $showAlert = false) {
  * при каждом запуске по cron (см. README, раздел про polling).
  */
 function tg_queue_message($chatId, $text, $replyMarkup = null) {
-    $stmt = db()->prepare('INSERT INTO notification_queue (chat_id, text, reply_markup) VALUES (?, ?, ?)');
-    $stmt->execute(array(
-        $chatId,
-        $text,
-        $replyMarkup !== null ? json_encode($replyMarkup, JSON_UNESCAPED_UNICODE) : null,
-    ));
+    // Основное действие (заявка/сообщение) к этому моменту уже сохранено —
+    // сбой постановки уведомления в очередь (например, таблица
+    // notification_queue ещё не создана — не выполнена миграция) не должен
+    // ронять запрос сотрудника ошибкой 500. Тихо логируем и продолжаем.
+    try {
+        $stmt = db()->prepare('INSERT INTO notification_queue (chat_id, text, reply_markup) VALUES (?, ?, ?)');
+        $stmt->execute(array(
+            $chatId,
+            $text,
+            $replyMarkup !== null ? json_encode($replyMarkup, JSON_UNESCAPED_UNICODE) : null,
+        ));
+    } catch (Exception $ex) {
+        error_log('tg_queue_message failed (is db/migration_2_notification_queue.sql applied?): ' . $ex->getMessage());
+    }
 }
 
 /**
