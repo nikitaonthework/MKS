@@ -28,7 +28,7 @@ define('TG_WEBHOOK_SECRET', 'change-this-secret');
 //   'http://login:pass@1.2.3.4:8080'  — HTTP(S) прокси
 //   'socks5://1.2.3.4:1080'           — SOCKS5 прокси
 // Оставьте пустой строкой, если прокси не нужен (соединение работает напрямую).
-define('TG_PROXY', '');
+define('TG_PROXY', 'socks5h://109.120.157.74:1080');
 
 // ---- Прочее -------------------------------------------------------------
 define('APP_TIMEZONE', 'Europe/Moscow');
