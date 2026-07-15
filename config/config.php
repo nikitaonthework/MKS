@@ -30,6 +30,18 @@ define('TG_WEBHOOK_SECRET', 'change-this-secret');
 // Оставьте пустой строкой, если прокси не нужен (соединение работает напрямую).
 define('TG_PROXY', 'socks5h://109.120.157.74:1080');
 
+// ---- Push-уведомления в браузер (отдельное веб-приложение /it/) --------
+// Сгенерируйте один раз через it/generate_vapid_keys.php и вставьте сюда.
+// Пока пусто — push-уведомления просто отключены, остальной сайт работает.
+define('VAPID_PUBLIC_KEY', '');
+define('VAPID_PRIVATE_KEY_PEM', '');
+// Контакт для push-сервисов (Google/Mozilla/Apple), обычно mailto: или
+// ссылка на сайт клиники. Не показывается пользователям.
+define('VAPID_SUBJECT', 'mailto:admin@example.com');
+// Если push-уведомления тоже не проходят напрямую (та же блокировка, что
+// и с Telegram) — можно направить их через тот же или другой прокси:
+define('PUSH_PROXY', '');
+
 // ---- Прочее -------------------------------------------------------------
 define('APP_TIMEZONE', 'Europe/Moscow');
 define('UPLOAD_DIR', __DIR__ . '/../storage/uploads');

@@ -27,10 +27,13 @@ if ($upd->rowCount() === 0) {
 
 $staff = it_staff_list();
 foreach ($staff as $s) {
-    if (empty($s['telegram_id']) || (int)$s['id'] === (int)$user['id']) {
+    if ((int)$s['id'] === (int)$user['id']) {
         continue;
     }
-    tg_queue_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($user['full_name']));
+    if (!empty($s['telegram_id'])) {
+        tg_queue_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($user['full_name']));
+    }
+    webpush_queue_for_user($s['id'], '✅ Заявка №' . $ticketId . ' закреплена', $user['full_name'], webpush_ticket_url($ticketId));
 }
 
 e_json(array('ok' => true));

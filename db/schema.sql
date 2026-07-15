@@ -117,6 +117,43 @@ CREATE TABLE IF NOT EXISTS notification_queue (
     KEY idx_notification_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------
+-- Push-подписки браузеров сотрудников IT-отдела (отдельное веб-приложение
+-- /it/, устанавливается на главный экран — см. README). Один сотрудник
+-- может иметь несколько подписок (телефон + компьютер и т.п.).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id     INT UNSIGNED NOT NULL,
+    endpoint    VARCHAR(500) NOT NULL,
+    p256dh      VARCHAR(255) NOT NULL,
+    auth        VARCHAR(255) NOT NULL,
+    user_agent  VARCHAR(255) NULL,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_push_sub_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uniq_push_endpoint (endpoint(255)),
+    KEY idx_push_sub_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- Очередь push-уведомлений в браузер (аналог notification_queue, но для
+-- Web Push вместо Telegram) — тоже отправляется отдельным шагом внутри
+-- bot/poll.php по cron, чтобы не блокировать веб-запросы сотрудников.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS push_queue (
+    id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    subscription_id  INT UNSIGNED NOT NULL,
+    title            VARCHAR(255) NOT NULL,
+    body             TEXT NOT NULL,
+    url              VARCHAR(500) NULL,
+    status           ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
+    attempts         TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sent_at          DATETIME NULL,
+    CONSTRAINT fk_push_queue_sub FOREIGN KEY (subscription_id) REFERENCES push_subscriptions(id) ON DELETE CASCADE,
+    KEY idx_push_queue_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ---------------------------------------------------------------------

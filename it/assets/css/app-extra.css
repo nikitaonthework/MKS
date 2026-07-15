@@ -1,0 +1,21 @@
+/* Небольшие дополнения к webapp/assets/css/app.css для отдельного
+   веб-приложения IT-отдела (баннер запроса разрешения на уведомления
+   и т.п.) — используются оба файла вместе, дублировать всю палитру
+   и базовые стили незачем. */
+
+.btn-sm { padding: 7px 12px; font-size: 12.5px; }
+
+.push-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: #fff3d6;
+    color: #6b4c00;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+.push-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }

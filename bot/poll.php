@@ -27,6 +27,7 @@
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/bot_handlers.php';
+require_once __DIR__ . '/../includes/webpush.php';
 
 $isCli = (php_sapi_name() === 'cli');
 if (!$isCli) {
@@ -126,4 +127,59 @@ try {
 } catch (Exception $ex) {
     out('ОШИБКА при отправке очереди уведомлений: ' . $ex->getMessage());
     out('Скорее всего, не выполнена миграция db/migration_2_notification_queue.sql — примените её через phpMyAdmin (вкладка «SQL»).');
+}
+
+// ---- 3. Push-уведомления в браузер (отдельное веб-приложение /it/) -----
+try {
+    if (!defined('VAPID_PUBLIC_KEY') || VAPID_PUBLIC_KEY === '') {
+        out('Push-уведомления не настроены (нет ключей VAPID в config.php — см. it/generate_vapid_keys.php).');
+    } elseif (EC_MATH_GMP_MISSING) {
+        out('Push-уведомления недоступны: расширение PHP GMP не установлено на сервере.');
+    } else {
+        $pendingPush = $pdo->query(
+            "SELECT pq.*, ps.endpoint, ps.p256dh, ps.auth, ps.id AS sub_id
+             FROM push_queue pq
+             JOIN push_subscriptions ps ON ps.id = pq.subscription_id
+             WHERE pq.status = 'pending'
+             ORDER BY pq.id ASC LIMIT 50"
+        )->fetchAll();
+
+        $pushSent = 0;
+        $pushFailed = 0;
+        $pushProxy = defined('PUSH_PROXY') ? PUSH_PROXY : '';
+
+        foreach ($pendingPush as $n) {
+            $payload = json_encode(array(
+                'title' => $n['title'],
+                'body' => $n['body'],
+                'url' => $n['url'],
+            ), JSON_UNESCAPED_UNICODE);
+
+            $subscription = array('endpoint' => $n['endpoint'], 'p256dh' => $n['p256dh'], 'auth' => $n['auth']);
+            $result = webpush_send($subscription, $payload, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY_PEM, VAPID_SUBJECT, $pushProxy);
+
+            if (!empty($result['ok'])) {
+                $pdo->prepare("UPDATE push_queue SET status = 'sent', sent_at = NOW() WHERE id = ?")->execute(array($n['id']));
+                $pushSent++;
+            } elseif (!empty($result['gone'])) {
+                // Подписка на стороне браузера больше не существует
+                // (приложение удалено/данные очищены) — удаляем её; все
+                // связанные записи push_queue удалятся каскадно.
+                $pdo->prepare('DELETE FROM push_subscriptions WHERE id = ?')->execute(array($n['sub_id']));
+                $pushFailed++;
+            } else {
+                $attempts = (int)$n['attempts'] + 1;
+                $newStatus = $attempts >= 5 ? 'failed' : 'pending';
+                $pdo->prepare('UPDATE push_queue SET attempts = ?, status = ? WHERE id = ?')
+                    ->execute(array($attempts, $newStatus, $n['id']));
+                $pushFailed++;
+                out('Не удалось отправить push #' . $n['id'] . ': ' . json_encode($result, JSON_UNESCAPED_UNICODE));
+            }
+        }
+
+        out('Отправлено push-уведомлений: ' . $pushSent . ($pushFailed ? (', с ошибкой: ' . $pushFailed) : ''));
+    }
+} catch (Exception $ex) {
+    out('ОШИБКА при отправке push-уведомлений: ' . $ex->getMessage());
+    out('Скорее всего, не выполнена миграция db/migration_3_web_push.sql — примените её через phpMyAdmin (вкладка «SQL»).');
 }

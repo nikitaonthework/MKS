@@ -90,11 +90,12 @@ function bot_handle_callback($cb) {
     // Подтверждение всем сотрудникам it-отдела (включая того, кто забрал заявку)
     $staff = it_staff_list();
     foreach ($staff as $s) {
-        if (empty($s['telegram_id'])) {
-            continue;
-        }
         if ((int)$s['id'] === (int)$itUser['id']) {
             continue; // уже получил ответ через answerCallbackQuery + отредактированное сообщение
+        }
+        webpush_queue_for_user($s['id'], '✅ Заявка №' . $ticketId . ' закреплена', $itUser['full_name'], webpush_ticket_url($ticketId));
+        if (empty($s['telegram_id'])) {
+            continue;
         }
         tg_queue_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($itUser['full_name']));
     }

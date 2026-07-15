@@ -9,6 +9,7 @@ if (!$user) {
 
 $error = '';
 $mandatory = (int)$user['must_change_password'] === 1;
+$redirectTarget = $user['role'] === 'it' ? 'it/index.php' : 'dashboard.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_check($_POST['csrf'] ?? '')) {
@@ -21,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($keepDefault) {
             $stmt = db()->prepare('UPDATE users SET must_change_password = 0 WHERE id = ?');
             $stmt->execute(array($user['id']));
-            header('Location: dashboard.php');
+            header('Location: ' . $redirectTarget);
             exit;
         }
 
@@ -33,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hash = password_hash($new, PASSWORD_BCRYPT);
             $stmt = db()->prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?');
             $stmt->execute(array($hash, $user['id']));
-            header('Location: dashboard.php');
+            header('Location: ' . $redirectTarget);
             exit;
         }
     }
@@ -72,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <?php if ($mandatory): ?>
         <button type="submit" name="keep_default" value="1" class="btn btn-outline btn-block">Оставить пароль по умолчанию</button>
       <?php else: ?>
-        <a href="dashboard.php" class="btn btn-outline btn-block" style="display:block; text-align:center; text-decoration:none;">Отмена</a>
+        <a href="<?php echo h($redirectTarget); ?>" class="btn btn-outline btn-block" style="display:block; text-align:center; text-decoration:none;">Отмена</a>
       <?php endif; ?>
     </form>
   </div>

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/webpush.php';
 
 define('TG_API_BASE', 'https://api.telegram.org/bot' . TG_BOT_TOKEN . '/');
 
@@ -129,11 +130,12 @@ function tg_notify_new_ticket($ticket, $authorName, $bodyText) {
         ),
     );
 
+    $pushUrl = webpush_ticket_url($ticket['id']);
     foreach ($staff as $s) {
-        if (empty($s['telegram_id'])) {
-            continue;
+        if (!empty($s['telegram_id'])) {
+            tg_queue_message($s['telegram_id'], $text, $keyboard);
         }
-        tg_queue_message($s['telegram_id'], $text, $keyboard);
+        webpush_queue_for_user($s['id'], '🆕 Новая заявка №' . (int)$ticket['id'], $authorName . ': ' . $preview, $pushUrl);
     }
 }
 
@@ -144,6 +146,8 @@ function tg_notify_new_reply($ticket, $authorName) {
     if (empty($ticket['assigned_to'])) {
         return;
     }
+    webpush_queue_for_user($ticket['assigned_to'], '💬 Новый ответ по заявке №' . (int)$ticket['id'], 'От: ' . $authorName, webpush_ticket_url($ticket['id']));
+
     $stmt = db()->prepare("SELECT telegram_id FROM users WHERE id = ? AND role = 'it'");
     $stmt->execute(array($ticket['assigned_to']));
     $telegramId = $stmt->fetchColumn();
@@ -158,14 +162,15 @@ function tg_notify_reopened($ticket, $authorName) {
     $staff = it_staff_list();
     $text = "♻️ <b>Заявка №" . (int)$ticket['id'] . " открыта повторно</b>\n\n"
         . "От: " . h($authorName);
+    $pushUrl = webpush_ticket_url($ticket['id']);
     foreach ($staff as $s) {
-        if (empty($s['telegram_id'])) {
-            continue;
-        }
         if (!empty($ticket['assigned_to']) && (int)$ticket['assigned_to'] !== (int)$s['id']) {
             continue;
         }
-        tg_queue_message($s['telegram_id'], $text);
+        if (!empty($s['telegram_id'])) {
+            tg_queue_message($s['telegram_id'], $text);
+        }
+        webpush_queue_for_user($s['id'], '♻️ Заявка №' . (int)$ticket['id'] . ' открыта повторно', 'От: ' . $authorName, $pushUrl);
     }
 }
 
