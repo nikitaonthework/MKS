@@ -209,6 +209,34 @@ function webpush_encrypt_payload($payload, $p256dhB64, $authB64) {
 }
 
 /**
+ * Превращает результат webpush_send() в короткую человекочитаемую строку
+ * для сохранения в push_queue.last_error (см. bot/poll.php, шаг 3) —
+ * чтобы при сбое доставки было видно причину, а не только код ошибки.
+ */
+function webpush_describe_error($result) {
+    if (!empty($result['error'])) {
+        switch ($result['error']) {
+            case 'gmp_missing':
+                return 'На сервере не установлено расширение PHP GMP';
+            case 'encrypt_failed':
+                return 'Не удалось зашифровать сообщение (неверные ключи подписки?)';
+            case 'jwt_failed':
+                return 'Не удалось подписать VAPID JWT (проверьте VAPID_PRIVATE_KEY_PEM в config.php)';
+            case 'curl':
+                return 'Сеть: ' . (isset($result['curl_error']) ? $result['curl_error'] : 'ошибка соединения');
+        }
+    }
+    if (isset($result['http_code'])) {
+        $text = 'HTTP ' . $result['http_code'];
+        if (!empty($result['body'])) {
+            $text .= ': ' . substr($result['body'], 0, 300);
+        }
+        return $text;
+    }
+    return json_encode($result, JSON_UNESCAPED_UNICODE);
+}
+
+/**
  * Полностью отправляет push-уведомление на один эндпоинт подписки.
  * $subscription — array('endpoint'=>.., 'p256dh'=>.., 'auth'=>..).
  * $payload — произвольная строка (у нас — JSON {title, body, url}).

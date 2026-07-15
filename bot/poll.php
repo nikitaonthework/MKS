@@ -159,7 +159,7 @@ try {
             $result = webpush_send($subscription, $payload, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY_PEM, VAPID_SUBJECT, $pushProxy);
 
             if (!empty($result['ok'])) {
-                $pdo->prepare("UPDATE push_queue SET status = 'sent', sent_at = NOW() WHERE id = ?")->execute(array($n['id']));
+                $pdo->prepare("UPDATE push_queue SET status = 'sent', sent_at = NOW(), last_error = NULL WHERE id = ?")->execute(array($n['id']));
                 $pushSent++;
             } elseif (!empty($result['gone'])) {
                 // Подписка на стороне браузера больше не существует
@@ -170,10 +170,11 @@ try {
             } else {
                 $attempts = (int)$n['attempts'] + 1;
                 $newStatus = $attempts >= 5 ? 'failed' : 'pending';
-                $pdo->prepare('UPDATE push_queue SET attempts = ?, status = ? WHERE id = ?')
-                    ->execute(array($attempts, $newStatus, $n['id']));
+                $errorText = webpush_describe_error($result);
+                $pdo->prepare('UPDATE push_queue SET attempts = ?, status = ?, last_error = ? WHERE id = ?')
+                    ->execute(array($attempts, $newStatus, $errorText, $n['id']));
                 $pushFailed++;
-                out('Не удалось отправить push #' . $n['id'] . ': ' . json_encode($result, JSON_UNESCAPED_UNICODE));
+                out('Не удалось отправить push #' . $n['id'] . ': ' . $errorText);
             }
         }
 

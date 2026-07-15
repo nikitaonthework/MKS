@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS push_queue (
     url              VARCHAR(500) NULL,
     status           ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
     attempts         TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    last_error       VARCHAR(500) NULL,
     created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sent_at          DATETIME NULL,
     CONSTRAINT fk_push_queue_sub FOREIGN KEY (subscription_id) REFERENCES push_subscriptions(id) ON DELETE CASCADE,
