@@ -157,14 +157,6 @@ CREATE TABLE IF NOT EXISTS push_queue (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ---------------------------------------------------------------------
--- Сотрудники IT-отдела (обрабатывают заявки через Telegram mini app)
--- ---------------------------------------------------------------------
-INSERT INTO users (full_name, password_hash, must_change_password, role, telegram_id, badge_color) VALUES
-('Вавилов Александр Игоревич', '$2y$12$2.vXKYPquFojxB.ozZ4SGuKcAdyQZKbXUKzMOSWTsKb4YNQhwZgYW', 1, 'it', 1126928689, 'purple'),
-('Павлов Никита Максимович', '$2y$12$2.vXKYPquFojxB.ozZ4SGuKcAdyQZKbXUKzMOSWTsKb4YNQhwZgYW', 1, 'it', 98303100, 'blue')
-ON DUPLICATE KEY UPDATE full_name = VALUES(full_name);
-
--- ---------------------------------------------------------------------
 -- Сотрудники клиники (список из СОТРУДНИКИ.xlsx, 498 уникальных ФИО)
 -- Пароль по умолчанию для всех: 123456789 (хэш ниже соответствует ему)
 -- Подключается отдельным файлом seed_employees.sql
