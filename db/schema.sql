@@ -12,9 +12,11 @@ SET FOREIGN_KEY_CHECKS = 0;
 CREATE TABLE IF NOT EXISTS users (
     id                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     full_name             VARCHAR(255) NOT NULL,
+    phone                 VARCHAR(30)  NULL, -- для кнопки «Позвонить» в /it/
     password_hash         VARCHAR(255) NOT NULL,
     must_change_password  TINYINT(1)   NOT NULL DEFAULT 1,
     role                  ENUM('employee','it') NOT NULL DEFAULT 'employee',
+    is_active             TINYINT(1)   NOT NULL DEFAULT 1, -- 0 — уволен/деактивирован (не может войти)
     badge_color           VARCHAR(20)  NULL, -- 'purple' | 'blue' — только для it-сотрудников
     created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_users_full_name (full_name)

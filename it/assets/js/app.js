@@ -146,6 +146,7 @@ function showView(name) {
     document.getElementById('view-list').style.display = name === 'list' ? 'flex' : 'none';
     document.getElementById('view-ticket').style.display = name === 'ticket' ? 'flex' : 'none';
     document.getElementById('view-report').style.display = name === 'report' ? 'block' : 'none';
+    document.getElementById('view-users').style.display = name === 'users' ? 'flex' : 'none';
     document.getElementById('tabbar').style.display = name === 'list' ? 'flex' : 'none';
     document.getElementById('back-btn').style.display = name === 'list' ? 'none' : 'inline-block';
     if (state.pollTimer && name !== 'ticket') {
@@ -177,6 +178,15 @@ function escapeHtml(s) {
     var d = document.createElement('div');
     d.textContent = s == null ? '' : s;
     return d.innerHTML;
+}
+
+function telHref(phone) {
+    return 'tel:' + phone.replace(/[^\d+]/g, '');
+}
+
+function callButtonHtml(phone) {
+    if (!phone) return '';
+    return '<a class="call-btn" href="' + telHref(phone) + '" title="Позвонить">📞</a>';
 }
 
 function loadList(tab) {
@@ -289,6 +299,12 @@ function renderChatActions(ticket) {
     }
 }
 
+function renderTicketInfoBar(ticket) {
+    var info = document.getElementById('ticket-info-bar');
+    info.innerHTML = 'Автор: <b>' + escapeHtml(ticket.author_name) + '</b>' + callButtonHtml(ticket.author_phone) +
+        (ticket.assignee_name ? ' · Отвечает: <b>' + escapeHtml(ticket.assignee_name) + '</b>' : ' · Не закреплена');
+}
+
 function openTicket(id) {
     state.ticketId = id;
     state.lastMessageId = 0;
@@ -302,10 +318,7 @@ function openTicket(id) {
         state.myId = data.my_id;
         state.ticketStatus = data.ticket.status;
         state.ticketAssigned = !!data.ticket.assignee_name;
-
-        var info = document.getElementById('ticket-info-bar');
-        info.innerHTML = 'Автор: <b>' + escapeHtml(data.ticket.author_name) + '</b>' +
-            (data.ticket.assignee_name ? ' · Отвечает: <b>' + escapeHtml(data.ticket.assignee_name) + '</b>' : ' · Не закреплена');
+        renderTicketInfoBar(data.ticket);
 
         var messagesEl = document.getElementById('chat-messages');
         data.messages.forEach(function (m) {
@@ -341,9 +354,7 @@ function pollTicket() {
             state.ticketAssigned = !!data.ticket.assignee_name;
             renderChatActions(data.ticket);
             document.getElementById('chat-composer').style.display = data.ticket.status === 'open' ? 'block' : 'none';
-            var info = document.getElementById('ticket-info-bar');
-            info.innerHTML = 'Автор: <b>' + escapeHtml(data.ticket.author_name) + '</b>' +
-                (data.ticket.assignee_name ? ' · Отвечает: <b>' + escapeHtml(data.ticket.assignee_name) + '</b>' : ' · Не закреплена');
+            renderTicketInfoBar(data.ticket);
         }
     }).catch(function () {});
 }
@@ -411,6 +422,170 @@ function loadReport() {
             wrap.appendChild(card);
         });
     }).catch(function () { wrap.innerHTML = ''; toast('Ошибка сети'); });
+}
+
+// ---------------- сотрудники (администрирование) ----------------
+
+var usersState = { list: [], selected: {}, editingId: null };
+
+function loadUsers() {
+    showView('users');
+    setTitle('Сотрудники');
+    document.getElementById('users-search').value = '';
+    usersState.selected = {};
+    updateUsersBulkBar();
+    var listEl = document.getElementById('users-list');
+    var emptyEl = document.getElementById('users-empty');
+    var loaderEl = document.getElementById('users-loader');
+    listEl.innerHTML = '';
+    emptyEl.style.display = 'none';
+    loaderEl.style.display = 'block';
+
+    apiFetch('users_list.php').then(function (data) {
+        loaderEl.style.display = 'none';
+        if (!data.ok) { toast(data.error || 'Ошибка загрузки'); return; }
+        usersState.list = data.users;
+        renderUsers('');
+    }).catch(function () { loaderEl.style.display = 'none'; toast('Ошибка сети'); });
+}
+
+function updateUsersBulkBar() {
+    var ids = Object.keys(usersState.selected).filter(function (k) { return usersState.selected[k]; });
+    var bar = document.getElementById('users-bulk-bar');
+    if (ids.length) {
+        bar.style.display = 'flex';
+        document.getElementById('users-selected-count').textContent = ids.length + ' выбрано';
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function renderUsers(query) {
+    var listEl = document.getElementById('users-list');
+    var emptyEl = document.getElementById('users-empty');
+    var q = query.trim().toLowerCase();
+    var items = !q ? usersState.list : usersState.list.filter(function (u) {
+        return (u.full_name && u.full_name.toLowerCase().indexOf(q) !== -1) ||
+               (u.phone && u.phone.toLowerCase().indexOf(q) !== -1);
+    });
+
+    listEl.innerHTML = '';
+    emptyEl.style.display = items.length ? 'none' : 'block';
+
+    items.forEach(function (u) {
+        var row = document.createElement('div');
+        row.className = 'user-row' + (u.is_active ? '' : ' inactive');
+
+        var check = document.createElement('input');
+        check.type = 'checkbox';
+        check.className = 'user-row-check';
+        check.checked = !!usersState.selected[u.id];
+        if (u.id === MY_USER_ID) {
+            check.disabled = true;
+        } else {
+            check.addEventListener('click', function (e) { e.stopPropagation(); });
+            check.addEventListener('change', function () {
+                usersState.selected[u.id] = check.checked;
+                updateUsersBulkBar();
+            });
+        }
+        row.appendChild(check);
+
+        var main = document.createElement('div');
+        main.className = 'user-row-main';
+        var roleBadge = u.role === 'it' ? '<span class="badge ' + (u.badge_color === 'purple' ? 'badge-purple' : (u.badge_color === 'blue' ? 'badge-blue' : 'badge-neutral')) + '">IT</span>' : '';
+        var inactiveBadge = !u.is_active ? '<span class="badge badge-inactive">Деактивирован</span>' : '';
+        main.innerHTML =
+            '<div class="user-row-name">' + escapeHtml(u.full_name) + ' ' + roleBadge + inactiveBadge + '</div>' +
+            '<div class="user-row-phone">' + (u.phone ? escapeHtml(u.phone) : '<span class="muted">телефон не указан</span>') + '</div>';
+        main.addEventListener('click', function () { openUserSheet(u); });
+        row.appendChild(main);
+
+        if (u.phone) {
+            var callLink = document.createElement('a');
+            callLink.className = 'call-btn';
+            callLink.href = telHref(u.phone);
+            callLink.title = 'Позвонить';
+            callLink.textContent = '📞';
+            callLink.addEventListener('click', function (e) { e.stopPropagation(); });
+            row.appendChild(callLink);
+        }
+
+        listEl.appendChild(row);
+    });
+}
+
+function openUserSheet(u) {
+    usersState.editingId = u ? u.id : null;
+    document.getElementById('user-sheet-title').textContent = u ? 'Изменить сотрудника' : 'Добавить сотрудника';
+    document.getElementById('user-sheet-error').style.display = 'none';
+    document.getElementById('user-full-name').value = u ? u.full_name : '';
+    document.getElementById('user-phone').value = u ? (u.phone || '') : '';
+    document.getElementById('user-password').value = '';
+    document.getElementById('user-password-label').textContent = u ? 'Новый пароль' : 'Пароль';
+    document.getElementById('user-password').placeholder = u ? 'Оставьте пустым, чтобы не менять' : 'По умолчанию: 123456789';
+    document.getElementById('user-force-change').checked = true;
+    document.getElementById('user-role').value = u ? u.role : 'employee';
+    document.getElementById('user-badge-color').value = u && u.badge_color ? u.badge_color : '';
+    document.getElementById('user-badge-field').style.display = (u ? u.role : 'employee') === 'it' ? 'block' : 'none';
+    var isSelf = !!(u && u.id === MY_USER_ID);
+    document.getElementById('user-active-row').style.display = u ? 'flex' : 'none';
+    document.getElementById('user-active').checked = u ? !!u.is_active : true;
+    document.getElementById('user-active').disabled = isSelf;
+    document.getElementById('user-delete-btn').style.display = u && !isSelf ? 'block' : 'none';
+    document.getElementById('user-sheet').classList.add('show');
+}
+
+function closeUserSheet() {
+    document.getElementById('user-sheet').classList.remove('show');
+}
+
+function saveUser() {
+    var errorBox = document.getElementById('user-sheet-error');
+    errorBox.style.display = 'none';
+    var fd = new FormData();
+    if (usersState.editingId) fd.append('id', usersState.editingId);
+    fd.append('full_name', document.getElementById('user-full-name').value.trim());
+    fd.append('phone', document.getElementById('user-phone').value.trim());
+    fd.append('password', document.getElementById('user-password').value);
+    fd.append('force_change', document.getElementById('user-force-change').checked ? '1' : '');
+    fd.append('role', document.getElementById('user-role').value);
+    fd.append('badge_color', document.getElementById('user-badge-color').value);
+    fd.append('is_active', document.getElementById('user-active').checked ? '1' : '');
+
+    var saveBtn = document.getElementById('user-save-btn');
+    saveBtn.disabled = true;
+    apiFetch('users_save.php', { method: 'POST', body: fd }).then(function (data) {
+        saveBtn.disabled = false;
+        if (!data.ok) {
+            errorBox.textContent = data.error || 'Не удалось сохранить';
+            errorBox.style.display = 'block';
+            return;
+        }
+        closeUserSheet();
+        toast('Сохранено');
+        loadUsers();
+    }).catch(function () {
+        saveBtn.disabled = false;
+        errorBox.textContent = 'Ошибка сети';
+        errorBox.style.display = 'block';
+    });
+}
+
+function deleteUsersByIds(ids) {
+    return apiFetch('users_delete.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ids }),
+    }).then(function (data) {
+        if (!data.ok) { toast(data.error || 'Не удалось удалить'); return; }
+        var parts = [];
+        if (data.deleted.length) parts.push('удалено: ' + data.deleted.length);
+        if (data.deactivated.length) parts.push('деактивировано (есть история заявок): ' + data.deactivated.length);
+        if (data.skipped.length) parts.push('пропущено: ' + data.skipped.length);
+        toast(parts.join(', ') || 'Готово');
+        loadUsers();
+    }).catch(function () { toast('Ошибка сети'); });
 }
 
 // ---------------- composer (attach + send) ----------------
@@ -582,6 +757,7 @@ function boot() {
             document.getElementById('menu-sheet').classList.remove('show');
             var action = el.getAttribute('data-action');
             if (action === 'report') loadReport();
+            if (action === 'users') loadUsers();
             if (action === 'logout') window.location.href = '../logout.php';
             if (action === 'notifications') {
                 localStorage.removeItem('push_dismissed');
@@ -637,6 +813,27 @@ function boot() {
     document.getElementById('send-btn').addEventListener('click', sendMessage);
     document.getElementById('body').addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+
+    document.getElementById('users-search').addEventListener('input', function () {
+        renderUsers(this.value);
+    });
+    document.getElementById('users-add-btn').addEventListener('click', function () { openUserSheet(null); });
+    document.getElementById('users-delete-selected').addEventListener('click', function () {
+        var ids = Object.keys(usersState.selected).filter(function (k) { return usersState.selected[k]; }).map(Number);
+        if (!ids.length) return;
+        if (!confirm('Удалить выбранных сотрудников (' + ids.length + ')? Тех, у кого уже есть заявки в истории, система деактивирует вместо удаления.')) return;
+        deleteUsersByIds(ids);
+    });
+    document.getElementById('user-sheet-backdrop').addEventListener('click', closeUserSheet);
+    document.getElementById('user-role').addEventListener('change', function () {
+        document.getElementById('user-badge-field').style.display = this.value === 'it' ? 'block' : 'none';
+    });
+    document.getElementById('user-save-btn').addEventListener('click', saveUser);
+    document.getElementById('user-delete-btn').addEventListener('click', function () {
+        if (!usersState.editingId) return;
+        if (!confirm('Удалить сотрудника? Если у него уже есть заявки в истории, система деактивирует его вместо удаления.')) return;
+        deleteUsersByIds([usersState.editingId]).then(closeUserSheet);
     });
 
     switchTab('new');

@@ -47,6 +47,7 @@ if ((int)$user['must_change_password'] === 1) {
     <div class="sheet-backdrop" id="menu-backdrop"></div>
     <div class="sheet-body">
       <div class="sheet-item" data-action="report">📊 Отчёт по дежурствам</div>
+      <div class="sheet-item" data-action="users">👥 Сотрудники</div>
       <div class="sheet-item" data-action="notifications">🔔 Уведомления</div>
       <div class="sheet-item" data-action="logout">🚪 Выйти (<?php echo h($user['full_name']); ?>)</div>
       <div class="sheet-item" data-action="close-menu">Закрыть</div>
@@ -82,6 +83,23 @@ if ((int)$user['must_change_password'] === 1) {
     <div class="report-wrap" id="report-wrap"></div>
   </div>
 
+  <div class="view" id="view-users" style="display:none;">
+    <div class="users-toolbar">
+      <input type="text" id="users-search" placeholder="Поиск по ФИО или телефону…">
+      <button type="button" class="btn btn-sm btn-gold" id="users-add-btn">+ Добавить</button>
+    </div>
+    <div class="users-bulk-bar" id="users-bulk-bar" style="display:none;">
+      <span id="users-selected-count"></span>
+      <button type="button" class="btn btn-sm btn-outline" id="users-delete-selected">Удалить выбранных</button>
+    </div>
+    <div class="users-list" id="users-list"></div>
+    <div class="empty-state" id="users-empty" style="display:none;">
+      <div class="icon">👥</div>
+      Никого не найдено
+    </div>
+    <div class="loader" id="users-loader">Загрузка…</div>
+  </div>
+
   <div class="tabbar" id="tabbar">
     <div class="tab active" data-tab="new"><span class="tab-icon">🆕</span><span>Новые</span></div>
     <div class="tab" data-tab="my"><span class="tab-icon">🗂</span><span>Мои</span></div>
@@ -108,6 +126,53 @@ if ((int)$user['must_change_password'] === 1) {
     </div>
   </div>
 
+  <div class="user-sheet" id="user-sheet">
+    <div class="sheet-backdrop" id="user-sheet-backdrop"></div>
+    <div class="sheet-body">
+      <div class="sheet-title" id="user-sheet-title">Добавить сотрудника</div>
+      <div id="user-sheet-error" class="error-box" style="display:none;"></div>
+      <div class="field">
+        <label for="user-full-name">ФИО</label>
+        <input type="text" id="user-full-name" placeholder="Иванов Иван Иванович">
+      </div>
+      <div class="field">
+        <label for="user-phone">Телефон</label>
+        <input type="tel" id="user-phone" placeholder="+7 900 000-00-00">
+      </div>
+      <div class="field">
+        <label for="user-password" id="user-password-label">Пароль</label>
+        <input type="text" id="user-password" placeholder="Оставьте пустым, чтобы не менять">
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="user-force-change" checked>
+        <span>Потребовать смену пароля при следующем входе</span>
+      </label>
+      <div class="field">
+        <label for="user-role">Роль</label>
+        <select id="user-role">
+          <option value="employee">Сотрудник</option>
+          <option value="it">IT-отдел</option>
+        </select>
+      </div>
+      <div class="field" id="user-badge-field" style="display:none;">
+        <label for="user-badge-color">Цвет бейджа (IT-отдел)</label>
+        <select id="user-badge-color">
+          <option value="">Без цвета</option>
+          <option value="purple">Фиолетовый</option>
+          <option value="blue">Голубой</option>
+        </select>
+      </div>
+      <label class="checkbox-row" id="user-active-row" style="display:none;">
+        <input type="checkbox" id="user-active">
+        <span>Активен (может входить в систему)</span>
+      </label>
+      <div style="display:flex; gap:10px; margin-top:16px;">
+        <button type="button" class="btn btn-outline btn-block" id="user-delete-btn" style="display:none;">Удалить</button>
+        <button type="button" class="btn btn-primary btn-block" id="user-save-btn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <div class="lightbox" id="lightbox" onclick="closeLightbox()">
@@ -118,6 +183,7 @@ if ((int)$user['must_change_password'] === 1) {
 </div>
 <script>
 var VAPID_PUBLIC_KEY = <?php echo json_encode(defined('VAPID_PUBLIC_KEY') ? VAPID_PUBLIC_KEY : ''); ?>;
+var MY_USER_ID = <?php echo (int)$user['id']; ?>;
 </script>
 <script src="assets/js/app.js"></script>
 </body>

@@ -6,7 +6,7 @@ $ticketId = (int)($_GET['id'] ?? 0);
 $afterId = (int)($_GET['after_id'] ?? 0);
 
 $stmt = db()->prepare(
-    "SELECT t.*, au.full_name AS author_name, it.full_name AS assignee_name, it.badge_color AS assignee_color
+    "SELECT t.*, au.full_name AS author_name, au.phone AS author_phone, it.full_name AS assignee_name, it.badge_color AS assignee_color
      FROM tickets t JOIN users au ON au.id = t.user_id LEFT JOIN users it ON it.id = t.assigned_to
      WHERE t.id = ?"
 );

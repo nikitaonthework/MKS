@@ -103,17 +103,17 @@ function current_user() {
     }
     if (empty($_SESSION['user_id'])) {
         $restored = try_remember_login();
-        if (!$restored) {
-            $user = false;
-            return null;
-        }
-        $user = $restored;
-        return $user;
+        $user = $restored ?: false;
+    } else {
+        $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
+        $stmt->execute(array($_SESSION['user_id']));
+        $found = $stmt->fetch();
+        $user = $found ?: false;
     }
-    $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
-    $stmt->execute(array($_SESSION['user_id']));
-    $user = $stmt->fetch();
-    if (!$user) {
+    // Деактивированный (уволенный) сотрудник — доступ отзывается сразу,
+    // даже если у него ещё была активная сессия/cookie «запомнить меня».
+    if ($user && (int)$user['is_active'] === 0) {
+        logout_user();
         $user = false;
     }
     return $user ? $user : null;
@@ -153,7 +153,7 @@ function attempt_login($fullName, $password) {
     $stmt = db()->prepare('SELECT * FROM users WHERE full_name = ?');
     $stmt->execute(array($fullName));
     $user = $stmt->fetch();
-    if (!$user || !password_verify($password, $user['password_hash'])) {
+    if (!$user || !password_verify($password, $user['password_hash']) || (int)$user['is_active'] === 0) {
         return false;
     }
     $_SESSION['user_id'] = $user['id'];
