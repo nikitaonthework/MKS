@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     id                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     full_name             VARCHAR(255) NOT NULL,
     phone                 VARCHAR(30)  NULL, -- для кнопки «Позвонить» в /it/
+    job_title             VARCHAR(150) NULL, -- должность — отображается в /it/
     password_hash         VARCHAR(255) NOT NULL,
     must_change_password  TINYINT(1)   NOT NULL DEFAULT 1,
     role                  ENUM('employee','it') NOT NULL DEFAULT 'employee',

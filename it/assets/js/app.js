@@ -301,7 +301,8 @@ function renderChatActions(ticket) {
 
 function renderTicketInfoBar(ticket) {
     var info = document.getElementById('ticket-info-bar');
-    info.innerHTML = 'Автор: <b>' + escapeHtml(ticket.author_name) + '</b>' + callButtonHtml(ticket.author_phone) +
+    var jobTitle = ticket.author_job_title ? ' <span class="muted">(' + escapeHtml(ticket.author_job_title) + ')</span>' : '';
+    info.innerHTML = 'Автор: <b>' + escapeHtml(ticket.author_name) + '</b>' + jobTitle + callButtonHtml(ticket.author_phone) +
         (ticket.assignee_name ? ' · Отвечает: <b>' + escapeHtml(ticket.assignee_name) + '</b>' : ' · Не закреплена');
 }
 
@@ -466,7 +467,8 @@ function renderUsers(query) {
     var q = query.trim().toLowerCase();
     var items = !q ? usersState.list : usersState.list.filter(function (u) {
         return (u.full_name && u.full_name.toLowerCase().indexOf(q) !== -1) ||
-               (u.phone && u.phone.toLowerCase().indexOf(q) !== -1);
+               (u.phone && u.phone.toLowerCase().indexOf(q) !== -1) ||
+               (u.job_title && u.job_title.toLowerCase().indexOf(q) !== -1);
     });
 
     listEl.innerHTML = '';
@@ -495,9 +497,10 @@ function renderUsers(query) {
         main.className = 'user-row-main';
         var roleBadge = u.role === 'it' ? '<span class="badge ' + (u.badge_color === 'purple' ? 'badge-purple' : (u.badge_color === 'blue' ? 'badge-blue' : 'badge-neutral')) + '">IT</span>' : '';
         var inactiveBadge = !u.is_active ? '<span class="badge badge-inactive">Деактивирован</span>' : '';
+        var jobTitleHtml = u.job_title ? escapeHtml(u.job_title) + ' · ' : '';
         main.innerHTML =
             '<div class="user-row-name">' + escapeHtml(u.full_name) + ' ' + roleBadge + inactiveBadge + '</div>' +
-            '<div class="user-row-phone">' + (u.phone ? escapeHtml(u.phone) : '<span class="muted">телефон не указан</span>') + '</div>';
+            '<div class="user-row-phone">' + jobTitleHtml + (u.phone ? escapeHtml(u.phone) : '<span class="muted">телефон не указан</span>') + '</div>';
         main.addEventListener('click', function () { openUserSheet(u); });
         row.appendChild(main);
 
@@ -521,6 +524,7 @@ function openUserSheet(u) {
     document.getElementById('user-sheet-error').style.display = 'none';
     document.getElementById('user-full-name').value = u ? u.full_name : '';
     document.getElementById('user-phone').value = u ? (u.phone || '') : '';
+    document.getElementById('user-job-title').value = u ? (u.job_title || '') : '';
     document.getElementById('user-password').value = '';
     document.getElementById('user-password-label').textContent = u ? 'Новый пароль' : 'Пароль';
     document.getElementById('user-password').placeholder = u ? 'Оставьте пустым, чтобы не менять' : 'По умолчанию: 123456789';
@@ -547,6 +551,7 @@ function saveUser() {
     if (usersState.editingId) fd.append('id', usersState.editingId);
     fd.append('full_name', document.getElementById('user-full-name').value.trim());
     fd.append('phone', document.getElementById('user-phone').value.trim());
+    fd.append('job_title', document.getElementById('user-job-title').value.trim());
     fd.append('password', document.getElementById('user-password').value);
     fd.append('force_change', document.getElementById('user-force-change').checked ? '1' : '');
     fd.append('role', document.getElementById('user-role').value);

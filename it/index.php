@@ -140,6 +140,10 @@ if ((int)$user['must_change_password'] === 1) {
         <input type="tel" id="user-phone" placeholder="+7 900 000-00-00">
       </div>
       <div class="field">
+        <label for="user-job-title">Должность</label>
+        <input type="text" id="user-job-title" placeholder="Например: Врач-педиатр">
+      </div>
+      <div class="field">
         <label for="user-password" id="user-password-label">Пароль</label>
         <input type="text" id="user-password" placeholder="Оставьте пустым, чтобы не менять">
       </div>

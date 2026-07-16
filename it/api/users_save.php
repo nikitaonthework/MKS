@@ -9,6 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $id = (int)($_POST['id'] ?? 0);
 $fullName = trim($_POST['full_name'] ?? '');
 $phone = trim($_POST['phone'] ?? '');
+$jobTitle = trim($_POST['job_title'] ?? '');
 $password = (string)($_POST['password'] ?? '');
 $forceChange = !empty($_POST['force_change']);
 $role = ($_POST['role'] ?? 'employee') === 'it' ? 'it' : 'employee';
@@ -23,6 +24,9 @@ if (mb_strlen($fullName, 'UTF-8') > 255) {
 }
 if ($phone !== '' && mb_strlen($phone, 'UTF-8') > 30) {
     e_json(array('error' => 'Телефон слишком длинный'), 422);
+}
+if ($jobTitle !== '' && mb_strlen($jobTitle, 'UTF-8') > 150) {
+    e_json(array('error' => 'Должность слишком длинная'), 422);
 }
 if (!in_array($badgeColor, array('', 'purple', 'blue'), true)) {
     $badgeColor = '';
@@ -49,16 +53,16 @@ try {
 
         if ($password !== '') {
             $pdo->prepare(
-                'UPDATE users SET full_name = ?, phone = ?, password_hash = ?, must_change_password = ?, role = ?, badge_color = ?, is_active = ? WHERE id = ?'
+                'UPDATE users SET full_name = ?, phone = ?, job_title = ?, password_hash = ?, must_change_password = ?, role = ?, badge_color = ?, is_active = ? WHERE id = ?'
             )->execute(array(
-                $fullName, $phone !== '' ? $phone : null, password_hash($password, PASSWORD_DEFAULT), $forceChange ? 1 : 0,
+                $fullName, $phone !== '' ? $phone : null, $jobTitle !== '' ? $jobTitle : null, password_hash($password, PASSWORD_DEFAULT), $forceChange ? 1 : 0,
                 $role, $badgeColor !== '' ? $badgeColor : null, $isActive, $id,
             ));
         } else {
             $pdo->prepare(
-                'UPDATE users SET full_name = ?, phone = ?, role = ?, badge_color = ?, is_active = ? WHERE id = ?'
+                'UPDATE users SET full_name = ?, phone = ?, job_title = ?, role = ?, badge_color = ?, is_active = ? WHERE id = ?'
             )->execute(array(
-                $fullName, $phone !== '' ? $phone : null, $role, $badgeColor !== '' ? $badgeColor : null, $isActive, $id,
+                $fullName, $phone !== '' ? $phone : null, $jobTitle !== '' ? $jobTitle : null, $role, $badgeColor !== '' ? $badgeColor : null, $isActive, $id,
             ));
         }
 
@@ -74,10 +78,10 @@ try {
             $forceChange = true;
         }
         $stmt = $pdo->prepare(
-            'INSERT INTO users (full_name, phone, password_hash, must_change_password, role, badge_color, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)'
+            'INSERT INTO users (full_name, phone, job_title, password_hash, must_change_password, role, badge_color, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
         );
         $stmt->execute(array(
-            $fullName, $phone !== '' ? $phone : null, password_hash($password, PASSWORD_DEFAULT), $forceChange ? 1 : 0,
+            $fullName, $phone !== '' ? $phone : null, $jobTitle !== '' ? $jobTitle : null, password_hash($password, PASSWORD_DEFAULT), $forceChange ? 1 : 0,
             $role, $badgeColor !== '' ? $badgeColor : null,
         ));
         e_json(array('ok' => true, 'id' => (int)$pdo->lastInsertId()));
