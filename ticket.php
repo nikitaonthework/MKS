@@ -56,9 +56,9 @@ if ($senderIds) {
 </head>
 <body>
 <div class="app-shell">
-  <?php $active = $isOwner ? 'my' : 'all'; include __DIR__ . '/includes/nav.php'; ?>
+  <?php $active = 'my'; include __DIR__ . '/includes/nav.php'; ?>
   <div class="main">
-    <a href="<?php echo $isOwner ? 'my_tickets.php' : 'all_tickets.php'; ?>" class="back-link">← Назад к списку</a>
+    <a href="my_tickets.php" class="back-link">← Назад к списку</a>
 
     <div class="chat-header">
       <div class="chat-header-left">
