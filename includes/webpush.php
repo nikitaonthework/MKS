@@ -194,6 +194,15 @@ function webpush_ticket_url($ticketId) {
     return rtrim(APP_URL, '/') . '/it/index.php?ticket=' . (int)$ticketId;
 }
 
+/**
+ * То же самое, но для обычного веб-кабинета сотрудника (не /it/) — Service
+ * Worker там зарегистрирован с корневым scope, поэтому и ссылка ведёт на
+ * корневую страницу заявки.
+ */
+function webpush_employee_ticket_url($ticketId) {
+    return rtrim(APP_URL, '/') . '/ticket.php?id=' . (int)$ticketId;
+}
+
 function webpush_base64url_encode($data) {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }

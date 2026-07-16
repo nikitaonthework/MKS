@@ -46,6 +46,8 @@ try {
     e_json(array('error' => 'Не удалось отправить сообщение'), 500);
 }
 
+notify_it_reply($ticket, $user['full_name']);
+
 e_json(array(
     'ok' => true,
     'message' => array(

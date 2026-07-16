@@ -20,6 +20,14 @@ function notify_new_reply($ticket, $authorName) {
     webpush_notify_user($ticket['assigned_to'], '💬 Новый ответ по заявке №' . (int)$ticket['id'], 'От: ' . $authorName, webpush_ticket_url($ticket['id']));
 }
 
+/**
+ * Уведомление автора заявки (сотрудника клиники) о том, что IT-отдел
+ * ответил на его обращение.
+ */
+function notify_it_reply($ticket, $itAuthorName) {
+    webpush_notify_user($ticket['user_id'], '💬 Ответ по заявке №' . (int)$ticket['id'], $itAuthorName . ' ответил(а) на вашу заявку', webpush_employee_ticket_url($ticket['id']));
+}
+
 function notify_reopened($ticket, $authorName) {
     if (!empty($ticket['assigned_to'])) {
         $targetIds = array($ticket['assigned_to']);

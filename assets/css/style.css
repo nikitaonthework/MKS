@@ -363,3 +363,29 @@ textarea { resize: vertical; min-height: 110px; }
     .chat-box { height: calc(100vh - 320px); }
     .msg-row { max-width: 88%; }
 }
+
+/* ---------- Индикатор загрузки файлов ---------- */
+.upload-progress {
+    height: 5px; border-radius: 999px; background: var(--border);
+    overflow: hidden; margin: 4px 0 10px;
+}
+.upload-progress-bar {
+    height: 100%; width: 0; border-radius: 999px;
+    background: var(--primary);
+    transition: width .15s ease-out;
+}
+
+/* ---------- Push-баннер (уведомления об ответе IT-отдела) ---------- */
+.push-banner-float {
+    position: fixed; left: 20px; right: 20px; bottom: 20px; z-index: 90;
+    max-width: 480px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    padding: 14px 16px;
+    font-size: 13px; font-weight: 600;
+}
+.push-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }

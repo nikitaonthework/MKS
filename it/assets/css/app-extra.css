@@ -18,3 +18,13 @@
     flex-wrap: wrap;
 }
 .push-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.upload-progress {
+    height: 5px; border-radius: 999px; background: var(--border);
+    overflow: hidden; margin: 0 0 8px;
+}
+.upload-progress-bar {
+    height: 100%; width: 0; border-radius: 999px;
+    background: var(--gold);
+    transition: width .15s ease-out;
+}

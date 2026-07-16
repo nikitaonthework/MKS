@@ -28,6 +28,50 @@ function renderPreview(previewEl) {
     });
 }
 
+// Пережимает фото перед отправкой (фото с телефона часто весят по 5-10 МБ,
+// а для заявки достаточно 1600px по длинной стороне) — заметно ускоряет
+// загрузку, особенно в мобильной сети. GIF не трогаем (потеряется анимация),
+// уже небольшие файлы и не-изображения возвращаем как есть.
+function compressImageFile(file) {
+    var MAX_DIM = 1600;
+    var QUALITY = 0.82;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 300 * 1024) {
+        return Promise.resolve(file);
+    }
+    return new Promise(function (resolve) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+            URL.revokeObjectURL(url);
+            var scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.naturalWidth * scale);
+            canvas.height = Math.round(img.naturalHeight * scale);
+            var ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(function (blob) {
+                if (!blob || blob.size >= file.size) {
+                    resolve(file);
+                    return;
+                }
+                var newName = file.name.replace(/\.\w+$/, '') + '.jpg';
+                var compressed;
+                try {
+                    compressed = new File([blob], newName, { type: 'image/jpeg' });
+                } catch (e) {
+                    blob.name = newName;
+                    compressed = blob;
+                }
+                resolve(compressed);
+            }, 'image/jpeg', QUALITY);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+    });
+}
+
 function wireAttach(attachBtnId, fileInputId, previewId) {
     var attachBtn = document.getElementById(attachBtnId);
     var fileInput = document.getElementById(fileInputId);
@@ -35,13 +79,63 @@ function wireAttach(attachBtnId, fileInputId, previewId) {
     if (!attachBtn || !fileInput) return;
     attachBtn.addEventListener('click', function () { fileInput.click(); });
     fileInput.addEventListener('change', function () {
+        var picked = [];
         for (var i = 0; i < fileInput.files.length; i++) {
-            if (pendingFiles.length >= 10) break;
-            pendingFiles.push(fileInput.files[i]);
+            if (pendingFiles.length + picked.length >= 10) break;
+            picked.push(fileInput.files[i]);
         }
         fileInput.value = '';
-        renderPreview(previewEl);
+        if (!picked.length) return;
+        Promise.all(picked.map(compressImageFile)).then(function (compressed) {
+            compressed.forEach(function (f) { pendingFiles.push(f); });
+            renderPreview(previewEl);
+        });
     });
+}
+
+// Отправка формы через XMLHttpRequest вместо fetch — только у него есть
+// событие прогресса ЗАГРУЗКИ (upload.progress), нужное для заполняющегося
+// индикатора при отправке фото/документов.
+function submitFormWithProgress(url, formData, onProgress) {
+    return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.upload.addEventListener('progress', function (e) {
+            if (onProgress && e.lengthComputable) {
+                onProgress(e.loaded / e.total);
+            }
+        });
+        xhr.onload = function () {
+            if (onProgress) onProgress(1);
+            try {
+                resolve(JSON.parse(xhr.responseText));
+            } catch (e) {
+                reject(e);
+            }
+        };
+        xhr.onerror = function () { reject(new Error('network')); };
+        xhr.send(formData);
+    });
+}
+
+function uploadProgressEls(prefix) {
+    return { box: document.getElementById(prefix + '-progress'), bar: document.getElementById(prefix + '-progress-bar') };
+}
+function showUploadProgress(prefix) {
+    var els = uploadProgressEls(prefix);
+    if (!els.box) return;
+    els.bar.style.width = '0%';
+    els.box.style.display = 'block';
+}
+function setUploadProgress(prefix, fraction) {
+    var els = uploadProgressEls(prefix);
+    if (!els.bar) return;
+    els.bar.style.width = Math.round(fraction * 100) + '%';
+}
+function hideUploadProgress(prefix) {
+    var els = uploadProgressEls(prefix);
+    if (!els.box) return;
+    els.box.style.display = 'none';
 }
 
 function showError(box, text) {
@@ -79,14 +173,14 @@ function initNewTicketForm() {
         var submitBtn = document.getElementById('submit-btn');
         submitBtn.disabled = true;
         submitBtn.textContent = 'Отправка…';
+        if (pendingFiles.length) showUploadProgress('upload');
 
         var fd = new FormData();
         fd.append('csrf', window.CSRF_TOKEN || '');
         fd.append('body', body);
         pendingFiles.forEach(function (f) { fd.append('files[]', f); });
 
-        fetch('api/create_ticket.php', { method: 'POST', body: fd })
-            .then(function (r) { return r.json(); })
+        submitFormWithProgress('api/create_ticket.php', fd, function (frac) { setUploadProgress('upload', frac); })
             .then(function (data) {
                 if (data.ok) {
                     if (data.attachment_errors && data.attachment_errors.length) {
@@ -94,12 +188,14 @@ function initNewTicketForm() {
                     }
                     window.location.href = 'ticket.php?id=' + data.ticket_id;
                 } else {
+                    hideUploadProgress('upload');
                     showError(errorBox, data.error || 'Не удалось отправить заявку.');
                     submitBtn.disabled = false;
                     submitBtn.textContent = 'Отправить заявку';
                 }
             })
             .catch(function () {
+                hideUploadProgress('upload');
                 showError(errorBox, 'Ошибка сети. Попробуйте ещё раз.');
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Отправить заявку';
@@ -189,6 +285,8 @@ function initTicketChat(cfg) {
             if (!body && pendingFiles.length === 0) return;
             hideError(errorBox);
             sendBtn.disabled = true;
+            var hadFiles = pendingFiles.length > 0;
+            if (hadFiles) showUploadProgress('upload');
 
             var fd = new FormData();
             fd.append('csrf', window.CSRF_TOKEN || '');
@@ -196,10 +294,10 @@ function initTicketChat(cfg) {
             fd.append('body', body);
             pendingFiles.forEach(function (f) { fd.append('files[]', f); });
 
-            fetch('api/send_message.php', { method: 'POST', body: fd })
-                .then(function (r) { return r.json(); })
+            submitFormWithProgress('api/send_message.php', fd, function (frac) { setUploadProgress('upload', frac); })
                 .then(function (data) {
                     sendBtn.disabled = false;
+                    if (hadFiles) hideUploadProgress('upload');
                     if (data.ok) {
                         bodyEl.value = '';
                         pendingFiles = [];
@@ -217,6 +315,7 @@ function initTicketChat(cfg) {
                 })
                 .catch(function () {
                     sendBtn.disabled = false;
+                    if (hadFiles) hideUploadProgress('upload');
                     showError(errorBox, 'Ошибка сети. Попробуйте ещё раз.');
                 });
         }
@@ -384,3 +483,90 @@ function initSearchPage() {
         debounceTimer = setTimeout(function () { runSearch(query); }, 300);
     });
 }
+
+// ---------------- push-уведомления (ответ IT-отдела на заявку) ----------------
+
+function urlBase64ToUint8ArrayEmp(base64String) {
+    var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var rawData = window.atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; i++) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+
+function pushSupportedEmp() {
+    return 'serviceWorker' in navigator && 'PushManager' in window && typeof VAPID_PUBLIC_KEY !== 'undefined' && !!VAPID_PUBLIC_KEY;
+}
+
+function sendSubscriptionToServerEmp(sub) {
+    fetch('api/push_subscribe.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub),
+    }).catch(function () {});
+}
+
+function subscribeToPushEmp(reg) {
+    return reg.pushManager.getSubscription().then(function (existing) {
+        if (existing) {
+            sendSubscriptionToServerEmp(existing);
+            return existing;
+        }
+        return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8ArrayEmp(VAPID_PUBLIC_KEY),
+        }).then(function (sub) {
+            sendSubscriptionToServerEmp(sub);
+            return sub;
+        });
+    });
+}
+
+function buildPushBannerEmp() {
+    var bar = document.createElement('div');
+    bar.className = 'push-banner-float';
+    bar.innerHTML =
+        '<span>Включить уведомления, когда IT-отдел ответит на заявку?</span>' +
+        '<div class="push-banner-actions">' +
+          '<button type="button" class="btn btn-sm btn-outline" id="emp-push-dismiss">Не сейчас</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" id="emp-push-enable">Включить</button>' +
+        '</div>';
+    document.body.appendChild(bar);
+    return bar;
+}
+
+function maybeShowPushBannerEmp(reg) {
+    if (!pushSupportedEmp()) return;
+    if (Notification.permission === 'denied') return;
+    if (Notification.permission === 'granted') {
+        subscribeToPushEmp(reg);
+        return;
+    }
+    if (localStorage.getItem('emp_push_dismissed') === '1') return;
+
+    var bar = buildPushBannerEmp();
+    document.getElementById('emp-push-enable').addEventListener('click', function () {
+        Notification.requestPermission().then(function (perm) {
+            bar.remove();
+            if (perm === 'granted') {
+                subscribeToPushEmp(reg);
+            }
+        });
+    });
+    document.getElementById('emp-push-dismiss').addEventListener('click', function () {
+        bar.remove();
+        localStorage.setItem('emp_push_dismissed', '1');
+    });
+}
+
+function initPushEmp() {
+    if (!pushSupportedEmp()) return;
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+        maybeShowPushBannerEmp(reg);
+    }).catch(function () {});
+}
+
+document.addEventListener('DOMContentLoaded', initPushEmp);

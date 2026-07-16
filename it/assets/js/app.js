@@ -39,6 +39,95 @@ function apiFetch(url, opts) {
     return fetch(API_BASE + url, opts).then(function (r) { return r.json(); });
 }
 
+// Пережимает фото перед отправкой (фото с телефона часто весят по 5-10 МБ,
+// а для заявки достаточно 1600px по длинной стороне) — заметно ускоряет
+// загрузку, особенно в мобильной сети. GIF не трогаем (потеряется анимация),
+// уже небольшие файлы и не-изображения возвращаем как есть.
+function compressImageFile(file) {
+    var MAX_DIM = 1600;
+    var QUALITY = 0.82;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 300 * 1024) {
+        return Promise.resolve(file);
+    }
+    return new Promise(function (resolve) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+            URL.revokeObjectURL(url);
+            var scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.naturalWidth * scale);
+            canvas.height = Math.round(img.naturalHeight * scale);
+            var ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(function (blob) {
+                if (!blob || blob.size >= file.size) {
+                    resolve(file);
+                    return;
+                }
+                var newName = file.name.replace(/\.\w+$/, '') + '.jpg';
+                var compressed;
+                try {
+                    compressed = new File([blob], newName, { type: 'image/jpeg' });
+                } catch (e) {
+                    blob.name = newName;
+                    compressed = blob;
+                }
+                resolve(compressed);
+            }, 'image/jpeg', QUALITY);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+    });
+}
+
+// Отправка через XMLHttpRequest вместо fetch — только у него есть событие
+// прогресса ЗАГРУЗКИ (upload.progress), нужное для индикатора при отправке
+// фото/документов.
+function submitFormWithProgress(url, formData, onProgress) {
+    return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', API_BASE + url);
+        xhr.upload.addEventListener('progress', function (e) {
+            if (onProgress && e.lengthComputable) {
+                onProgress(e.loaded / e.total);
+            }
+        });
+        xhr.onload = function () {
+            if (onProgress) onProgress(1);
+            try {
+                resolve(JSON.parse(xhr.responseText));
+            } catch (e) {
+                reject(e);
+            }
+        };
+        xhr.onerror = function () { reject(new Error('network')); };
+        xhr.send(formData);
+    });
+}
+
+function uploadProgressEls(prefix) {
+    return { box: document.getElementById(prefix + '-progress'), bar: document.getElementById(prefix + '-progress-bar') };
+}
+function showUploadProgress(prefix) {
+    var els = uploadProgressEls(prefix);
+    if (!els.box) return;
+    els.bar.style.width = '0%';
+    els.box.style.display = 'block';
+}
+function setUploadProgress(prefix, fraction) {
+    var els = uploadProgressEls(prefix);
+    if (!els.bar) return;
+    els.bar.style.width = Math.round(fraction * 100) + '%';
+}
+function hideUploadProgress(prefix) {
+    var els = uploadProgressEls(prefix);
+    if (!els.box) return;
+    els.box.style.display = 'none';
+}
+
 function openLightbox(src) {
     var lb = document.getElementById('lightbox');
     document.getElementById('lightbox-img').src = src;
@@ -350,14 +439,17 @@ function sendMessage() {
     if (!body && pendingFiles.length === 0) return;
     var sendBtn = document.getElementById('send-btn');
     sendBtn.disabled = true;
+    var hadFiles = pendingFiles.length > 0;
+    if (hadFiles) showUploadProgress('upload');
 
     var fd = new FormData();
     fd.append('ticket_id', state.ticketId);
     fd.append('body', body);
     pendingFiles.forEach(function (f) { fd.append('files[]', f); });
 
-    apiFetch('send_message.php', { method: 'POST', body: fd }).then(function (data) {
+    submitFormWithProgress('send_message.php', fd, function (frac) { setUploadProgress('upload', frac); }).then(function (data) {
         sendBtn.disabled = false;
+        if (hadFiles) hideUploadProgress('upload');
         if (data.ok) {
             bodyEl.value = '';
             pendingFiles = [];
@@ -376,7 +468,7 @@ function sendMessage() {
         } else {
             toast(data.error || 'Не удалось отправить сообщение');
         }
-    }).catch(function () { sendBtn.disabled = false; toast('Ошибка сети'); });
+    }).catch(function () { sendBtn.disabled = false; if (hadFiles) hideUploadProgress('upload'); toast('Ошибка сети'); });
 }
 
 // ---------------- push-уведомления ----------------
@@ -529,12 +621,17 @@ function boot() {
     var fileInput = document.getElementById('file-input');
     attachBtn.addEventListener('click', function () { fileInput.click(); });
     fileInput.addEventListener('change', function () {
+        var picked = [];
         for (var i = 0; i < fileInput.files.length; i++) {
-            if (pendingFiles.length >= 10) break;
-            pendingFiles.push(fileInput.files[i]);
+            if (pendingFiles.length + picked.length >= 10) break;
+            picked.push(fileInput.files[i]);
         }
         fileInput.value = '';
-        renderPreview();
+        if (!picked.length) return;
+        Promise.all(picked.map(compressImageFile)).then(function (compressed) {
+            compressed.forEach(function (f) { pendingFiles.push(f); });
+            renderPreview();
+        });
     });
 
     document.getElementById('send-btn').addEventListener('click', sendMessage);

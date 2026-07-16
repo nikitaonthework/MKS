@@ -122,6 +122,7 @@ if ($senderIds) {
       <div class="chat-composer">
         <div id="form-error" class="error-box" style="display:none;"></div>
         <div class="composer-preview" id="preview"></div>
+        <div class="upload-progress" id="upload-progress" style="display:none;"><div class="upload-progress-bar" id="upload-progress-bar"></div></div>
         <div class="composer-row">
           <button type="button" class="attach-btn" id="attach-btn" title="Прикрепить файл">+</button>
           <input type="file" id="file-input" multiple hidden accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.csv">

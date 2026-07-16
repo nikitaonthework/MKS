@@ -68,6 +68,7 @@ if ((int)$user['must_change_password'] === 1) {
     <div class="chat-actions" id="chat-actions"></div>
     <div class="chat-composer" id="chat-composer">
       <div class="composer-preview" id="preview"></div>
+      <div class="upload-progress" id="upload-progress" style="display:none;"><div class="upload-progress-bar" id="upload-progress-bar"></div></div>
       <div class="composer-row">
         <button type="button" class="attach-btn" id="attach-btn">+</button>
         <input type="file" id="file-input" multiple hidden accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.csv">

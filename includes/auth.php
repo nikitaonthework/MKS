@@ -5,18 +5,116 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
-function current_user() {
-    if (empty($_SESSION['user_id'])) {
+const REMEMBER_COOKIE_NAME = 'remember_me';
+const REMEMBER_COOKIE_DAYS = 90;
+
+function remember_cookie_is_secure() {
+    return !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+}
+
+/**
+ * Выдаёт cookie «запомнить меня» (селектор:валидатор — стандартная схема,
+ * устойчивая к утечке БД: хранится только хэш валидатора, а не он сам) и
+ * записывает соответствующую строку в remember_tokens. Вызывается при
+ * каждом успешном входе, чтобы сотруднику не приходилось логиниться заново
+ * при каждом визите (особенно важно для установленного на главный экран
+ * веб-приложения — там форма входа не должна всплывать при каждом запуске).
+ */
+function issue_remember_cookie($userId) {
+    $selector = bin2hex(random_bytes(9));
+    $validator = bin2hex(random_bytes(33));
+    $validatorHash = hash('sha256', $validator);
+    $expiresAt = date('Y-m-d H:i:s', time() + REMEMBER_COOKIE_DAYS * 86400);
+
+    db()->prepare('INSERT INTO remember_tokens (user_id, selector, validator_hash, expires_at) VALUES (?, ?, ?, ?)')
+        ->execute(array($userId, $selector, $validatorHash, $expiresAt));
+
+    setcookie(REMEMBER_COOKIE_NAME, $selector . ':' . $validator, array(
+        'expires' => time() + REMEMBER_COOKIE_DAYS * 86400,
+        'path' => '/',
+        'secure' => remember_cookie_is_secure(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ));
+}
+
+/**
+ * Удаляет одну (текущую) или все токены «запомнить меня» пользователя и
+ * стирает cookie — вызывается при выходе.
+ */
+function clear_remember_cookie($allForUserId = null) {
+    if ($allForUserId !== null) {
+        db()->prepare('DELETE FROM remember_tokens WHERE user_id = ?')->execute(array($allForUserId));
+    } elseif (isset($_COOKIE[REMEMBER_COOKIE_NAME]) && strpos($_COOKIE[REMEMBER_COOKIE_NAME], ':') !== false) {
+        list($selector) = explode(':', $_COOKIE[REMEMBER_COOKIE_NAME], 2);
+        db()->prepare('DELETE FROM remember_tokens WHERE selector = ?')->execute(array($selector));
+    }
+    setcookie(REMEMBER_COOKIE_NAME, '', array(
+        'expires' => time() - 42000,
+        'path' => '/',
+        'secure' => remember_cookie_is_secure(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ));
+    unset($_COOKIE[REMEMBER_COOKIE_NAME]);
+}
+
+/**
+ * Пробует восстановить сессию по cookie «запомнить меня», если активной
+ * сессии ещё нет. При успехе выдаёт новый токен взамен использованного
+ * (ротация — если старое значение cookie всплывёт повторно, это будет
+ * расценено как валидатор не подошедший к селектору, и токен отзовётся).
+ */
+function try_remember_login() {
+    if (empty($_COOKIE[REMEMBER_COOKIE_NAME]) || strpos($_COOKIE[REMEMBER_COOKIE_NAME], ':') === false) {
         return null;
     }
+    list($selector, $validator) = explode(':', $_COOKIE[REMEMBER_COOKIE_NAME], 2);
+
+    $stmt = db()->prepare('SELECT * FROM remember_tokens WHERE selector = ?');
+    $stmt->execute(array($selector));
+    $token = $stmt->fetch();
+
+    if (!$token || strtotime($token['expires_at']) < time() || !hash_equals($token['validator_hash'], hash('sha256', $validator))) {
+        clear_remember_cookie();
+        return null;
+    }
+
+    $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
+    $stmt->execute(array($token['user_id']));
+    $user = $stmt->fetch();
+    if (!$user) {
+        clear_remember_cookie();
+        return null;
+    }
+
+    db()->prepare('DELETE FROM remember_tokens WHERE id = ?')->execute(array($token['id']));
+    $_SESSION['user_id'] = $user['id'];
+    session_regenerate_id(true);
+    issue_remember_cookie($user['id']);
+
+    return $user;
+}
+
+function current_user() {
     static $user = null;
-    if ($user === null) {
-        $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
-        $stmt->execute(array($_SESSION['user_id']));
-        $user = $stmt->fetch();
-        if (!$user) {
+    if ($user !== null) {
+        return $user ? $user : null;
+    }
+    if (empty($_SESSION['user_id'])) {
+        $restored = try_remember_login();
+        if (!$restored) {
             $user = false;
+            return null;
         }
+        $user = $restored;
+        return $user;
+    }
+    $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
+    $stmt->execute(array($_SESSION['user_id']));
+    $user = $stmt->fetch();
+    if (!$user) {
+        $user = false;
     }
     return $user ? $user : null;
 }
@@ -60,10 +158,13 @@ function attempt_login($fullName, $password) {
     }
     $_SESSION['user_id'] = $user['id'];
     session_regenerate_id(true);
+    issue_remember_cookie($user['id']);
     return $user;
 }
 
 function logout_user() {
+    $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+    clear_remember_cookie($userId);
     $_SESSION = array();
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();

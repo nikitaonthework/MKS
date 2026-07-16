@@ -39,3 +39,6 @@ function nav_initials($fullName) {
     <a href="logout.php" class="logout-link">Выйти</a>
   </div>
 </div>
+<script>
+var VAPID_PUBLIC_KEY = <?php echo json_encode(defined('VAPID_PUBLIC_KEY') ? VAPID_PUBLIC_KEY : ''); ?>;
+</script>
