@@ -15,11 +15,9 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash         VARCHAR(255) NOT NULL,
     must_change_password  TINYINT(1)   NOT NULL DEFAULT 1,
     role                  ENUM('employee','it') NOT NULL DEFAULT 'employee',
-    telegram_id           BIGINT NULL,
     badge_color           VARCHAR(20)  NULL, -- 'purple' | 'blue' — только для it-сотрудников
     created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uniq_users_full_name (full_name),
-    UNIQUE KEY uniq_users_telegram_id (telegram_id)
+    UNIQUE KEY uniq_users_full_name (full_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -37,6 +35,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     CONSTRAINT fk_tickets_user FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT fk_tickets_assigned FOREIGN KEY (assigned_to) REFERENCES users(id),
     KEY idx_tickets_status (status),
+    KEY idx_tickets_status_updated (status, updated_at),
     KEY idx_tickets_user (user_id),
     KEY idx_tickets_assigned (assigned_to)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -87,37 +86,6 @@ CREATE TABLE IF NOT EXISTS duty_hours (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
--- Служебное хранилище состояния бота (используется bot/poll.php, если
--- вместо вебхука выбран режим опроса Telegram по cron — см. README).
--- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS bot_state (
-    name   VARCHAR(50) PRIMARY KEY,
-    value  VARCHAR(255) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-INSERT INTO bot_state (name, value) VALUES ('update_offset', '0')
-ON DUPLICATE KEY UPDATE name = name;
-
--- ---------------------------------------------------------------------
--- Очередь уведомлений в Telegram. Веб-запросы (создание заявки, ответ,
--- закрытие и т.д.) только кладут сюда строку — это мгновенная операция
--- без обращения к сети — а реальную отправку через Telegram API делает
--- bot/poll.php при каждом запуске по cron. Так медленный/недоступный
--- прокси до Telegram никогда не блокирует и не ломает ответ сайта.
--- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS notification_queue (
-    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    chat_id       BIGINT NOT NULL,
-    text          TEXT NOT NULL,
-    reply_markup  TEXT NULL,
-    status        ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
-    attempts      TINYINT UNSIGNED NOT NULL DEFAULT 0,
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    sent_at       DATETIME NULL,
-    KEY idx_notification_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ---------------------------------------------------------------------
 -- Push-подписки браузеров сотрудников IT-отдела (отдельное веб-приложение
 -- /it/, устанавливается на главный экран — см. README). Один сотрудник
 -- может иметь несколько подписок (телефон + компьютер и т.п.).
@@ -136,9 +104,10 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
--- Очередь push-уведомлений в браузер (аналог notification_queue, но для
--- Web Push вместо Telegram) — тоже отправляется отдельным шагом внутри
--- bot/poll.php по cron, чтобы не блокировать веб-запросы сотрудников.
+-- История отправки push-уведомлений (для диагностики it/diagnose_push.php).
+-- Отправка синхронная — прямо в момент события (см. includes/webpush.php,
+-- webpush_notify_users()), без очереди и cron; сюда каждая попытка просто
+-- логируется уже с итоговым статусом (sent/failed).
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS push_queue (
     id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

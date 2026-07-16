@@ -275,5 +275,112 @@ function initTicketChat(cfg) {
             .catch(function () {});
     }
 
-    setInterval(poll, 4000);
+    var pollTimer = null;
+    function startPolling() {
+        if (pollTimer) return;
+        pollTimer = setInterval(poll, 2500);
+    }
+    function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+    // На фоновой вкладке опрос не нужен — экономит запросы и батарею; при
+    // возврате на вкладку сразу подтягиваем то, что пропустили.
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            stopPolling();
+        } else {
+            poll();
+            startPolling();
+        }
+    });
+    if (!document.hidden) {
+        startPolling();
+    }
+}
+
+// ---------------- поиск по закрытым заявкам ----------------
+
+function initSearchPage() {
+    var input = document.getElementById('search-input');
+    var resultsEl = document.getElementById('search-results');
+    var loaderEl = document.getElementById('search-loader');
+    var emptyEl = document.getElementById('search-empty');
+    var emptyTextEl = document.getElementById('search-empty-text');
+    var debounceTimer = null;
+    var currentRequestId = 0;
+
+    function badgeAssignee(t) {
+        if (!t.assignee_name) return '';
+        var color = t.assignee_color === 'purple' ? '#8b5cf6' : (t.assignee_color === 'blue' ? '#38bdf8' : '#94a3b8');
+        return '<span class="badge badge-assignee" style="color:' + color + '; border-color:' + color + ';">' + escapeHtmlSearch(t.assignee_name) + '</span>';
+    }
+
+    function escapeHtmlSearch(s) {
+        var d = document.createElement('div');
+        d.textContent = s == null ? '' : s;
+        return d.innerHTML;
+    }
+
+    function renderResults(tickets) {
+        resultsEl.innerHTML = '';
+        tickets.forEach(function (t) {
+            var a = document.createElement('a');
+            a.className = 'ticket-row' + (t.mine ? ' mine' : '');
+            a.href = 'ticket.php?id=' + t.id;
+            a.innerHTML =
+                '<div class="ticket-id">№' + t.id + '</div>' +
+                '<div class="ticket-main">' +
+                  '<div class="ticket-subject">' + escapeHtmlSearch(t.subject) + '</div>' +
+                  '<div class="ticket-meta"><span>' + escapeHtmlSearch(t.author_name) + '</span>' + badgeAssignee(t) + '</div>' +
+                '</div>' +
+                '<span class="badge badge-closed">✔ Закрыта</span>';
+            resultsEl.appendChild(a);
+        });
+    }
+
+    function runSearch(query) {
+        var requestId = ++currentRequestId;
+        loaderEl.style.display = 'block';
+        emptyEl.style.display = 'none';
+        fetch('api/search_tickets.php?q=' + encodeURIComponent(query))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (requestId !== currentRequestId) return; // ответ на устаревший запрос — игнорируем
+                loaderEl.style.display = 'none';
+                if (!data.ok) {
+                    resultsEl.innerHTML = '';
+                    emptyTextEl.textContent = data.error || 'Ошибка поиска';
+                    emptyEl.style.display = 'block';
+                    return;
+                }
+                if (!data.tickets.length) {
+                    resultsEl.innerHTML = '';
+                    emptyTextEl.textContent = 'Ничего не найдено. Попробуйте другое слово или создайте новую заявку.';
+                    emptyEl.style.display = 'block';
+                    return;
+                }
+                emptyEl.style.display = 'none';
+                renderResults(data.tickets);
+            })
+            .catch(function () {
+                if (requestId !== currentRequestId) return;
+                loaderEl.style.display = 'none';
+                resultsEl.innerHTML = '';
+                emptyTextEl.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+                emptyEl.style.display = 'block';
+            });
+    }
+
+    input.addEventListener('input', function () {
+        var query = input.value.trim();
+        clearTimeout(debounceTimer);
+        resultsEl.innerHTML = '';
+        if (!query) {
+            loaderEl.style.display = 'none';
+            emptyTextEl.textContent = 'Начните вводить запрос — например, название устройства или суть проблемы.';
+            emptyEl.style.display = 'block';
+            return;
+        }
+        debounceTimer = setTimeout(function () { runSearch(query); }, 300);
+    });
 }

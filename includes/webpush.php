@@ -7,35 +7,181 @@
  * какого-либо стороннего SaaS.
  *
  * Требует расширение GMP (для ECDH — openssl_pkey_derive() появился
- * только в PHP 8.1, а хостинг на 7.3). Если GMP недоступен, webpush_send()
+ * только в PHP 8.1, а хостинг на 7.3). Если GMP недоступен, отправка
  * возвращает ошибку — остальной сайт при этом продолжает работать.
+ *
+ * Отправка происходит синхронно, прямо в момент события (создание
+ * заявки/ответ/закрепление) — без очереди и cron: раньше уведомления
+ * копились в таблице и ждали отдельного скрипта по расписанию, из-за
+ * чего при сбое cron на хостинге они просто не доходили. Теперь сайт сам
+ * шлёт push сразу же (см. webpush_notify_users() ниже), с короткими
+ * таймаутами и параллельной отправкой на все подписки разом, чтобы это
+ * не задерживало ответ сотруднику.
  */
 require_once __DIR__ . '/ec_math.php';
 require_once __DIR__ . '/db.php';
 
 /**
- * Ставит push-уведомление в очередь для ВСЕХ подписок конкретного
- * IT-сотрудника (может быть несколько устройств). Мгновенная запись в БД,
- * без сети — реальную отправку делает bot/poll.php по cron, как и для
- * Telegram. Если таблицы push_* ещё не созданы (не выполнена миграция
- * db/migration_3_web_push.sql), тихо пропускает — остальной сайт при этом
- * продолжает работать (та же защита, что и в tg_queue_message()).
+ * Отправляет push-уведомление сразу на несколько подписок ОДНОВРЕМЕННО
+ * (параллельно, через curl_multi) — так что уведомление 2 сотрудникам IT
+ * x несколько устройств занимает по времени как ОДИН самый медленный
+ * запрос, а не сумму всех. Шифрование (это CPU, не сеть) при этом всё
+ * равно делается по очереди для каждой подписки — оно быстрое
+ * (несколько умножений точки эллиптической кривой, миллисекунды).
+ *
+ * $subscriptions — [['id'=>subscription_id, 'endpoint'=>.., 'p256dh'=>.., 'auth'=>..], ...]
+ * Возвращает массив [subscription_id => результат] (формат — как у webpush_send()).
  */
-function webpush_queue_for_user($itUserId, $title, $body, $url = null) {
+function webpush_send_parallel($subscriptions, $payload, $vapidPublicKey, $vapidPrivateKeyPem, $vapidSubject, $proxy = '') {
+    $results = array();
+    if (!$subscriptions) {
+        return $results;
+    }
+    if (EC_MATH_GMP_MISSING) {
+        foreach ($subscriptions as $s) {
+            $results[$s['id']] = array('ok' => false, 'error' => 'gmp_missing');
+        }
+        return $results;
+    }
+
+    $mh = curl_multi_init();
+    $handles = array();
+
+    foreach ($subscriptions as $s) {
+        $body = webpush_encrypt_payload($payload, $s['p256dh'], $s['auth']);
+        if ($body === null) {
+            $results[$s['id']] = array('ok' => false, 'error' => 'encrypt_failed');
+            continue;
+        }
+        $urlParts = parse_url($s['endpoint']);
+        if (!$urlParts || empty($urlParts['scheme']) || empty($urlParts['host'])) {
+            $results[$s['id']] = array('ok' => false, 'error' => 'bad_endpoint');
+            continue;
+        }
+        $audience = $urlParts['scheme'] . '://' . $urlParts['host'];
+        $jwt = webpush_vapid_jwt($audience, $vapidSubject, $vapidPrivateKeyPem);
+        if ($jwt === null) {
+            $results[$s['id']] = array('ok' => false, 'error' => 'jwt_failed');
+            continue;
+        }
+
+        $ch = curl_init($s['endpoint']);
+        $options = array(
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $body,
+            CURLOPT_RETURNTRANSFER => true,
+            // Короткие таймауты специально: эта отправка теперь происходит
+            // прямо во время запроса сотрудника (создание заявки/ответ), без
+            // очереди и cron — значит, недоступный push-сервис не должен
+            // заставлять сотрудника долго ждать ответа страницы.
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 5,
+            CURLOPT_HTTPHEADER => array(
+                'Content-Type: application/octet-stream',
+                'Content-Encoding: aes128gcm',
+                'TTL: 604800',
+                'Authorization: vapid t=' . $jwt . ', k=' . $vapidPublicKey,
+            ),
+        );
+        if ($proxy !== '') {
+            $options[CURLOPT_PROXY] = $proxy;
+        }
+        curl_setopt_array($ch, $options);
+        curl_multi_add_handle($mh, $ch);
+        $handles[$s['id']] = $ch;
+    }
+
+    if ($handles) {
+        $running = null;
+        do {
+            $status = curl_multi_exec($mh, $running);
+            if ($running) {
+                curl_multi_select($mh, 1.0);
+            }
+        } while ($running && $status === CURLM_OK);
+
+        foreach ($handles as $subId => $ch) {
+            $response = curl_multi_getcontent($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err = curl_error($ch);
+            if ($response === false || $response === null || $httpCode === 0) {
+                $results[$subId] = array('ok' => false, 'error' => 'curl', 'curl_error' => $err !== '' ? $err : 'нет ответа от push-сервиса');
+            } else {
+                $results[$subId] = array(
+                    'ok' => $httpCode === 201,
+                    'http_code' => $httpCode,
+                    'gone' => ($httpCode === 404 || $httpCode === 410),
+                    'body' => $response,
+                );
+            }
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+        }
+    }
+    curl_multi_close($mh);
+
+    return $results;
+}
+
+/**
+ * Отправляет push-уведомление сразу нескольким сотрудникам IT-отдела (по
+ * id пользователя, у каждого может быть несколько подписок/устройств) —
+ * прямо сейчас, синхронно, без очереди и cron (см. webpush_send_parallel
+ * выше — все подписки отправляются параллельно). Устаревшие подписки
+ * (браузер отписался/приложение удалено — 404/410) удаляются сразу.
+ * Каждая попытка логируется в push_queue — не для повторной отправки
+ * (очереди больше нет), а как история для диагностики
+ * (см. it/diagnose_push.php). Если push не настроен (нет ключей VAPID)
+ * или таблицы push_* отсутствуют — тихо ничего не делает, остальной
+ * сайт продолжает работать как обычно.
+ */
+function webpush_notify_users($userIds, $title, $body, $url = null) {
+    $userIds = array_values(array_unique(array_filter(array_map('intval', (array)$userIds))));
+    if (!$userIds) {
+        return;
+    }
+    if (!defined('VAPID_PUBLIC_KEY') || VAPID_PUBLIC_KEY === '' || !defined('VAPID_PRIVATE_KEY_PEM') || VAPID_PRIVATE_KEY_PEM === '') {
+        return;
+    }
     try {
-        $stmt = db()->prepare('SELECT id FROM push_subscriptions WHERE user_id = ?');
-        $stmt->execute(array($itUserId));
-        $subscriptionIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        if (!$subscriptionIds) {
+        $pdo = db();
+        $in = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $pdo->prepare("SELECT id, user_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN ($in)");
+        $stmt->execute($userIds);
+        $subs = $stmt->fetchAll();
+        if (!$subs) {
             return;
         }
-        $ins = db()->prepare('INSERT INTO push_queue (subscription_id, title, body, url) VALUES (?, ?, ?, ?)');
-        foreach ($subscriptionIds as $subId) {
-            $ins->execute(array($subId, $title, $body, $url));
+
+        $payload = json_encode(array('title' => $title, 'body' => $body, 'url' => $url), JSON_UNESCAPED_UNICODE);
+        $pushProxy = defined('PUSH_PROXY') ? PUSH_PROXY : '';
+        $results = webpush_send_parallel($subs, $payload, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY_PEM, VAPID_SUBJECT, $pushProxy);
+
+        $logStmt = $pdo->prepare(
+            'INSERT INTO push_queue (subscription_id, title, body, url, status, attempts, last_error, sent_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
+        );
+        $goneIds = array();
+        foreach ($subs as $s) {
+            $r = isset($results[$s['id']]) ? $results[$s['id']] : array('ok' => false, 'error' => 'unknown');
+            if (!empty($r['ok'])) {
+                $logStmt->execute(array($s['id'], $title, $body, $url, 'sent', null, date('Y-m-d H:i:s')));
+            } elseif (!empty($r['gone'])) {
+                $goneIds[] = $s['id'];
+            } else {
+                $logStmt->execute(array($s['id'], $title, $body, $url, 'failed', webpush_describe_error($r), null));
+            }
+        }
+        if ($goneIds) {
+            $inGone = implode(',', array_fill(0, count($goneIds), '?'));
+            $pdo->prepare("DELETE FROM push_subscriptions WHERE id IN ($inGone)")->execute($goneIds);
         }
     } catch (Exception $ex) {
-        error_log('webpush_queue_for_user failed (is db/migration_3_web_push.sql applied?): ' . $ex->getMessage());
+        error_log('webpush_notify_users failed: ' . $ex->getMessage());
     }
+}
+
+function webpush_notify_user($userId, $title, $body, $url = null) {
+    webpush_notify_users(array($userId), $title, $body, $url);
 }
 
 /**
@@ -209,9 +355,9 @@ function webpush_encrypt_payload($payload, $p256dhB64, $authB64) {
 }
 
 /**
- * Превращает результат webpush_send() в короткую человекочитаемую строку
- * для сохранения в push_queue.last_error (см. bot/poll.php, шаг 3) —
- * чтобы при сбое доставки было видно причину, а не только код ошибки.
+ * Превращает результат отправки в короткую человекочитаемую строку для
+ * сохранения в push_queue.last_error — чтобы при сбое доставки было видно
+ * причину, а не только код ошибки.
  */
 function webpush_describe_error($result) {
     if (!empty($result['error'])) {

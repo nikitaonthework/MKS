@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
-$user = webapp_auth();
+$user = it_api_auth();
 
 $ticketId = (int)($_GET['id'] ?? 0);
 $afterId = (int)($_GET['after_id'] ?? 0);

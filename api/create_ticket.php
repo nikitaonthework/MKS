@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
-require_once __DIR__ . '/../includes/telegram.php';
+require_once __DIR__ . '/../includes/notify.php';
 
 $user = require_active_user();
 
@@ -44,8 +44,6 @@ try {
 $fresh = $pdo->prepare('SELECT * FROM tickets WHERE id = ?');
 $fresh->execute(array($ticketId));
 $ticketRow = $fresh->fetch();
-// Кладём уведомление в очередь (мгновенная запись в БД, без обращения к
-// сети) — реальную отправку в Telegram делает bot/poll.php по cron.
-tg_notify_new_ticket($ticketRow, $user['full_name'], $body);
+notify_new_ticket($ticketRow, $user['full_name'], $body);
 
 e_json(array('ok' => true, 'ticket_id' => $ticketId, 'attachment_errors' => $uploadResult['errors']));

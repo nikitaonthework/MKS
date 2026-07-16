@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
-require_once __DIR__ . '/../includes/telegram.php';
+require_once __DIR__ . '/../includes/notify.php';
 
 $user = require_active_user();
 
@@ -54,7 +54,7 @@ try {
 }
 
 if ($isOwner) {
-    tg_notify_new_reply($ticket, $user['full_name']);
+    notify_new_reply($ticket, $user['full_name']);
 }
 
 e_json(array(

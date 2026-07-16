@@ -3,7 +3,7 @@
  * Диагностика push-уведомлений: показывает, на каком именно шаге рвётся
  * цепочка "разрешил уведомления в браузере -> получил push", вместо того
  * чтобы гадать. Откройте в браузере:
- *   https://ваш-сайт/it/diagnose_push.php?key=ВАШ_TG_WEBHOOK_SECRET
+ *   https://ваш-сайт/it/diagnose_push.php?key=ВАШ_ADMIN_SECRET
  * Удалите после диагностики (здесь показываются служебные данные — не
  * секретные ключи, но всё же не для посторонних глаз).
  */
@@ -14,9 +14,9 @@ require_once __DIR__ . '/../includes/webpush.php';
 
 header('Content-Type: text/plain; charset=utf-8');
 
-if (!isset($_GET['key']) || !hash_equals(TG_WEBHOOK_SECRET, $_GET['key'])) {
+if (!isset($_GET['key']) || !hash_equals(ADMIN_SECRET, $_GET['key'])) {
     http_response_code(403);
-    echo "Доступ запрещён. Укажите ?key=ВАШ_TG_WEBHOOK_SECRET (см. config/config.php, TG_WEBHOOK_SECRET)\n";
+    echo "Доступ запрещён. Укажите ?key=ВАШ_ADMIN_SECRET (см. config/config.php, ADMIN_SECRET)\n";
     exit;
 }
 
@@ -71,7 +71,7 @@ try {
 }
 echo "\n";
 
-echo "===== 4. Очередь push-уведомлений (push_queue, последние 20) =====\n";
+echo "===== 4. История отправки push-уведомлений (push_queue, последние 20) =====\n";
 try {
     $hasLastError = false;
     $cols = $pdo->query("SHOW COLUMNS FROM push_queue LIKE 'last_error'")->fetchAll();
@@ -89,22 +89,21 @@ try {
     )->fetchAll();
 
     if (!$rows) {
-        echo "Очередь пуста — значит либо ещё не было ни одного события,\n"
+        echo "История пуста — значит либо ещё не было ни одного события,\n"
             . "требующего уведомления, либо у сотрудника нет активной подписки\n"
-            . "(webpush_queue_for_user() тихо ничего не кладёт в очередь, если\n"
-            . "подписок нет — см. раздел 3 выше).\n";
+            . "(webpush_notify_users() тихо ничего не отправляет, если подписок\n"
+            . "нет — см. раздел 3 выше).\n";
     } else {
         foreach ($rows as $r) {
-            $line = "  #" . $r['id'] . " [" . $r['status'] . ", попыток: " . $r['attempts'] . "] "
+            $line = "  #" . $r['id'] . " [" . $r['status'] . "] "
                 . $r['title'] . " — создано " . $r['created_at'];
             echo $line . "\n";
-            if ($hasLastError && $r['status'] !== 'sent' && !empty($r['last_error'])) {
-                echo "      последняя ошибка: " . $r['last_error'] . "\n";
+            if ($hasLastError && $r['status'] === 'failed' && !empty($r['last_error'])) {
+                echo "      причина сбоя: " . $r['last_error'] . "\n";
             }
         }
-        echo "\nЕсли записи зависли в статусе pending — проверьте, что cron\n"
-            . "действительно запускает bot/poll.php (см. README, раздел про cron).\n"
-            . "Если status = failed — смотрите на \"последняя ошибка\" выше.\n";
+        echo "\nОтправка происходит сразу же (без очереди и cron) — если тут\n"
+            . "видны только записи status=failed, смотрите на \"причина сбоя\" выше.\n";
     }
 } catch (Exception $ex) {
     echo "ОШИБКА чтения push_queue: " . $ex->getMessage() . "\n";
@@ -145,7 +144,7 @@ if (!extension_loaded('gmp') || !$hasPublic || !$hasPrivate) {
                 echo "ОШИБКА: " . webpush_describe_error($result) . "\n";
                 if (!empty($result['error']) && $result['error'] === 'curl') {
                     echo "-> Это сетевая ошибка: push-сервис (Google FCM / Mozilla / Apple) недоступен\n"
-                        . "   напрямую с вашего хостинга — та же ситуация, что и с Telegram (см. bot/diagnose.php).\n"
+                        . "   напрямую с вашего хостинга.\n"
                         . "   Решение: укажите рабочий прокси в PUSH_PROXY в config/config.php.\n";
                 } elseif (!empty($result['gone'])) {
                     echo "-> Подписка больше не действительна на стороне браузера (404/410).\n"

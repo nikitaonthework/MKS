@@ -23,7 +23,7 @@ if ((int)$user['must_change_password'] === 1) {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="IT Desk">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="../webapp/assets/css/app.css">
+<link rel="stylesheet" href="assets/css/app-base.css">
 <link rel="stylesheet" href="assets/css/app-extra.css">
 </head>
 <body>

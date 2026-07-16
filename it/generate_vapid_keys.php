@@ -1,11 +1,11 @@
 <?php
 /**
  * Одноразовый скрипт генерации ключей VAPID для push-уведомлений.
- * Откройте в браузере: https://ваш-сайт/it/generate_vapid_keys.php?key=ВАШ_TG_WEBHOOK_SECRET
- * (используется тот же секрет, что и для bot/setwebhook.php — отдельный
- * заводить не нужно). Полученные строки вставьте в config/config.php
- * (VAPID_PUBLIC_KEY и VAPID_PRIVATE_KEY_PEM), затем удалите этот файл —
- * он не должен оставаться на сервере после использования.
+ * Откройте в браузере: https://ваш-сайт/it/generate_vapid_keys.php?key=ВАШ_ADMIN_SECRET
+ * (значение — то, что вы указали в ADMIN_SECRET в config/config.php).
+ * Полученные строки вставьте в config/config.php (VAPID_PUBLIC_KEY и
+ * VAPID_PRIVATE_KEY_PEM), затем удалите этот файл — он не должен
+ * оставаться на сервере после использования.
  */
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/ec_math.php';
@@ -13,9 +13,9 @@ require_once __DIR__ . '/../includes/webpush.php';
 
 header('Content-Type: text/plain; charset=utf-8');
 
-if (!isset($_GET['key']) || !hash_equals(TG_WEBHOOK_SECRET, $_GET['key'])) {
+if (!isset($_GET['key']) || !hash_equals(ADMIN_SECRET, $_GET['key'])) {
     http_response_code(403);
-    echo "Доступ запрещён. Укажите ?key=ВАШ_TG_WEBHOOK_SECRET (см. config/config.php, TG_WEBHOOK_SECRET)\n";
+    echo "Доступ запрещён. Укажите ?key=ВАШ_ADMIN_SECRET (см. config/config.php, ADMIN_SECRET)\n";
     exit;
 }
 

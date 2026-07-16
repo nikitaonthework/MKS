@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
-require_once __DIR__ . '/../includes/telegram.php';
+require_once __DIR__ . '/../includes/notify.php';
 
 $user = require_active_user();
 
@@ -27,6 +27,6 @@ if (!$isOwner || $ticket['status'] !== 'closed') {
 
 db()->prepare("UPDATE tickets SET status = 'open', closed_at = NULL, updated_at = NOW() WHERE id = ?")->execute(array($ticketId));
 
-tg_notify_reopened($ticket, $user['full_name']);
+notify_reopened($ticket, $user['full_name']);
 
 e_json(array('ok' => true));

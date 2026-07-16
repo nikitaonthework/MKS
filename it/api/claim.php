@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
-$user = webapp_auth();
+$user = it_api_auth();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     e_json(array('error' => 'Метод не поддерживается'), 405);
@@ -25,15 +25,6 @@ if ($upd->rowCount() === 0) {
     e_json(array('error' => 'Заявка уже закреплена другим сотрудником'), 409);
 }
 
-$staff = it_staff_list();
-foreach ($staff as $s) {
-    if ((int)$s['id'] === (int)$user['id']) {
-        continue;
-    }
-    if (!empty($s['telegram_id'])) {
-        tg_queue_message($s['telegram_id'], '✅ Заявка №' . $ticketId . ' закреплена за ' . h($user['full_name']));
-    }
-    webpush_queue_for_user($s['id'], '✅ Заявка №' . $ticketId . ' закреплена', $user['full_name'], webpush_ticket_url($ticketId));
-}
+notify_claimed($ticketId, $user['full_name'], $user['id']);
 
 e_json(array('ok' => true));

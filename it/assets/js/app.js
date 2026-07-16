@@ -1,6 +1,6 @@
 'use strict';
 
-var API_BASE = '../webapp/api/';
+var API_BASE = 'api/';
 
 var state = {
     view: 'list',
@@ -229,7 +229,7 @@ function openTicket(id) {
         document.getElementById('chat-composer').style.display = data.ticket.status === 'open' ? 'block' : 'none';
 
         if (state.pollTimer) clearInterval(state.pollTimer);
-        state.pollTimer = setInterval(pollTicket, 4000);
+        state.pollTimer = document.hidden ? null : setInterval(pollTicket, 2500);
     }).catch(function () { toast('Ошибка сети'); });
 }
 
@@ -457,6 +457,18 @@ function initPush() {
 // ---------------- boot ----------------
 
 function boot() {
+    // На фоновой вкладке опрос сообщений не нужен — экономит запросы и
+    // батарею; при возврате на вкладку сразу подтягиваем пропущенное.
+    document.addEventListener('visibilitychange', function () {
+        if (state.view !== 'ticket') return;
+        if (document.hidden) {
+            if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+        } else {
+            pollTicket();
+            if (!state.pollTimer) state.pollTimer = setInterval(pollTicket, 2500);
+        }
+    });
+
     document.querySelectorAll('.tab').forEach(function (el) {
         el.addEventListener('click', function () { switchTab(el.getAttribute('data-tab')); });
     });

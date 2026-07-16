@@ -25,6 +25,7 @@ function nav_initials($fullName) {
     <a href="dashboard.php" class="<?php echo $active === 'new' ? 'active' : ''; ?>"><span class="nav-icon">✚</span> Создать заявку</a>
     <a href="my_tickets.php" class="<?php echo $active === 'my' ? 'active' : ''; ?>"><span class="nav-icon">🗂</span> Мои заявки</a>
     <a href="all_tickets.php" class="<?php echo $active === 'all' ? 'active' : ''; ?>"><span class="nav-icon">📋</span> Все заявки</a>
+    <a href="search.php" class="<?php echo $active === 'search' ? 'active' : ''; ?>"><span class="nav-icon">🔍</span> Поиск</a>
   </div>
   <div class="sidebar-footer">
     <div class="user-chip">

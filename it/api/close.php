@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
-$user = webapp_auth();
+$user = it_api_auth();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     e_json(array('error' => 'Метод не поддерживается'), 405);

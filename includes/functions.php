@@ -214,7 +214,7 @@ function process_uploaded_files($field, $ticketId, $messageId, $pdo) {
 }
 
 function it_staff_list() {
-    $stmt = db()->query("SELECT id, full_name, telegram_id, badge_color FROM users WHERE role = 'it' ORDER BY id");
+    $stmt = db()->query("SELECT id, full_name, badge_color FROM users WHERE role = 'it' ORDER BY id");
     return $stmt->fetchAll();
 }
 

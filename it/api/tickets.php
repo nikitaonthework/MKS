@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
-$user = webapp_auth();
+$user = it_api_auth();
 
 $tab = isset($_GET['tab']) ? $_GET['tab'] : 'new';
 

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
-$user = webapp_auth();
+$user = it_api_auth();
 
 $stmt = db()->query(
     "SELECT YEARWEEK(work_date, 3) AS yw, it_user_id, SUM(hours) AS total_hours
