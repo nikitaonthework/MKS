@@ -564,76 +564,124 @@
     let bufferCount = 0;
     const FLUSH_EVERY = 300; // писем на файл — компромисс между размером файла и памятью
 
+    // Счётчики диагностики. Если в конце writtenCount === 0, значит вся
+    // страница прошла, но извлечение развалилось на каком-то шаге — и
+    // именно поэтому файл не появляется, хотя сеть "работает".
+    let pagesFetched = 0, itemsSeen = 0, noIdCount = 0, threadFetchFailed = 0,
+      itemErrors = 0, writtenCount = 0;
+    const NOISY_LOG_LIMIT = 3; // не спамить лог одинаковыми предупреждениями
+
     logLine(`Начинаю экспорт папки "${folder.label}" с offset=${progress.offset}`);
 
-    while (state.running && !progress.done) {
-      if (state.paused) { await sleep(500); continue; }
+    try {
+      while (state.running && !progress.done) {
+        if (state.paused) { await sleep(500); continue; }
 
-      const overrides = {};
-      for (const [k, v] of folder.sampleUrl.searchParams.entries()) overrides[k] = v;
-      overrides[state.listTemplate.offsetParam] = progress.offset;
-      if (state.listTemplate.limitParam) overrides[state.listTemplate.limitParam] = state.listTemplate.limitValue;
+        const overrides = {};
+        for (const [k, v] of folder.sampleUrl.searchParams.entries()) overrides[k] = v;
+        overrides[state.listTemplate.offsetParam] = progress.offset;
+        if (state.listTemplate.limitParam) overrides[state.listTemplate.limitParam] = state.listTemplate.limitValue;
 
-      const listJson = await apiGet(state.listTemplate.urlObj, overrides);
-      await sleep(400 + Math.random() * 300);
-      if (!listJson) { progress.done = true; break; }
-
-      const items = findMessageArray(listJson) || [];
-      if (items.length === 0) { progress.done = true; break; }
-
-      for (const item of items) {
-        if (!state.running) break;
-        while (state.paused) await sleep(500);
-
-        const threadId = findFieldDeep(item, /^(id|threadid|thread_id|uidl)$/i);
-        if (threadId == null) continue;
-        const idStr = String(threadId);
-        if (processedSet.has(idStr)) continue;
-
-        const threadJson = await apiGet(state.threadTemplate.urlObj, { id: idStr });
+        const listJson = await apiGet(state.listTemplate.urlObj, overrides);
+        pagesFetched++;
         await sleep(400 + Math.random() * 300);
-        if (!threadJson) { processedSet.add(idStr); continue; }
-
-        const messagesArr = findFieldDeep(threadJson, /^messages$/i);
-        const messages = Array.isArray(messagesArr) && messagesArr.length ? messagesArr : [threadJson];
-
-        for (let i = 0; i < messages.length; i++) {
-          const msg = extractMessage(messages[i], idStr, i);
-          const eml = await buildEml(msg);
-          buffer += emlToMboxEntry(eml, msg.from, msg.date);
-          bufferCount++;
+        if (!listJson) {
+          logLine(`Список писем не пришёл (пустой/невалидный ответ) на offset=${progress.offset} — останавливаюсь.`);
+          progress.done = true; break;
         }
 
-        processedSet.add(idStr);
-        progress.processedIds = [...processedSet];
-        // progress.offset (курсор страницы) обновляется только после полной
-        // страницы, см. ниже — дедупликация внутри страницы идёт через processedIds.
-
-        if (bufferCount >= FLUSH_EVERY) {
-          downloadMboxChunk(folder.label, progress.part, buffer);
-          progress.part += 1;
-          buffer = '';
-          bufferCount = 0;
-          await idbSet(progressKey, progress);
+        const items = findMessageArray(listJson) || [];
+        if (items.length === 0) {
+          logLine(`Страница на offset=${progress.offset} пуста — считаю папку пройденной.`);
+          progress.done = true; break;
         }
-        renderPanel();
+
+        for (const item of items) {
+          if (!state.running) break;
+          while (state.paused) await sleep(500);
+          itemsSeen++;
+
+          try {
+            const threadId = findFieldDeep(item, /^(id|threadid|thread_id|uidl)$/i);
+            if (threadId == null) {
+              noIdCount++;
+              if (noIdCount <= NOISY_LOG_LIMIT) {
+                logLine(`Не нашёл id письма в элементе списка. Доступные поля: ${Object.keys(item).join(', ')}`);
+                if (state.debug) console.dir(item);
+              }
+              continue;
+            }
+            const idStr = String(threadId);
+            if (processedSet.has(idStr)) continue;
+
+            const threadJson = await apiGet(state.threadTemplate.urlObj, { id: idStr });
+            await sleep(400 + Math.random() * 300);
+            if (!threadJson) {
+              threadFetchFailed++;
+              if (threadFetchFailed <= NOISY_LOG_LIMIT) {
+                logLine(`Не удалось получить письмо id=${idStr} (пустой/невалидный ответ).`);
+              }
+              processedSet.add(idStr);
+              continue;
+            }
+
+            const messagesArr = findFieldDeep(threadJson, /^messages$/i);
+            const messages = Array.isArray(messagesArr) && messagesArr.length ? messagesArr : [threadJson];
+
+            for (let i = 0; i < messages.length; i++) {
+              const msg = extractMessage(messages[i], idStr, i);
+              const eml = await buildEml(msg);
+              buffer += emlToMboxEntry(eml, msg.from, msg.date);
+              bufferCount++;
+              writtenCount++;
+            }
+
+            processedSet.add(idStr);
+            progress.processedIds = [...processedSet];
+            // progress.offset (курсор страницы) обновляется только после полной
+            // страницы, см. ниже — дедупликация внутри страницы идёт через processedIds.
+          } catch (e) {
+            itemErrors++;
+            if (itemErrors <= NOISY_LOG_LIMIT) {
+              logLine(`Ошибка при обработке письма: ${e && e.message ? e.message : e}`);
+              console.error('[MKSMailExport] item error', e, item);
+            }
+          }
+
+          if (bufferCount >= FLUSH_EVERY) {
+            downloadMboxChunk(folder.label, progress.part, buffer);
+            progress.part += 1;
+            buffer = '';
+            bufferCount = 0;
+            await idbSet(progressKey, progress);
+          }
+          renderPanel();
+        }
+
+        progress.offset = (overrides[state.listTemplate.offsetParam] || 0) +
+          (state.listTemplate.limitParam ? state.listTemplate.limitValue : items.length);
+        await idbSet(progressKey, progress);
+
+        if (state.listTemplate.limitParam && items.length < state.listTemplate.limitValue) {
+          progress.done = true;
+        }
       }
-
-      progress.offset = (overrides[state.listTemplate.offsetParam] || 0) +
-        (state.listTemplate.limitParam ? state.listTemplate.limitValue : items.length);
+    } catch (e) {
+      logLine(`Критическая ошибка экспорта папки "${folder.label}": ${e && e.message ? e.message : e}`);
+      console.error('[MKSMailExport] fatal export error', e);
+    } finally {
+      if (bufferCount > 0) {
+        downloadMboxChunk(folder.label, progress.part, buffer);
+        progress.part += 1;
+      }
       await idbSet(progressKey, progress);
-
-      if (state.listTemplate.limitParam && items.length < state.listTemplate.limitValue) {
-        progress.done = true;
+      logLine(`Готово: папка "${folder.label}". Страниц: ${pagesFetched}, писем в списках: ${itemsSeen}, ` +
+        `сохранено: ${writtenCount}, без id: ${noIdCount}, не открылось: ${threadFetchFailed}, ошибок: ${itemErrors}.`);
+      if (writtenCount === 0 && itemsSeen > 0) {
+        logLine('⚠ Ни одно письмо не сохранено, хотя список писем не пуст — разверни "Замеченные запросы" ' +
+          'и включи debug, чтобы посмотреть в консоли реальную структуру ответа (не совпадают названия полей).');
       }
     }
-
-    if (bufferCount > 0) {
-      downloadMboxChunk(folder.label, progress.part, buffer);
-      progress.part += 1;
-    }
-    await idbSet(progressKey, progress);
-    logLine(`Готово: папка "${folder.label}" (обработано писем: ${processedSet.size}).`);
   }
 
   // ---------------------------------------------------------------------
@@ -798,7 +846,10 @@
       btn.textContent = '⬇ Экспорт';
       btn.addEventListener('click', () => {
         state.running = true;
-        exportFolder(key);
+        exportFolder(key).catch((e) => {
+          logLine(`Экспорт неожиданно упал: ${e && e.message ? e.message : e}`);
+          console.error('[MKSMailExport] exportFolder rejected', e);
+        });
       });
       row.appendChild(btn);
       foldersEl.appendChild(row);
