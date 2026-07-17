@@ -208,16 +208,18 @@
     if (u.pathname === '/api/v1/threads/thread') {
       state.threadTemplate = { urlObj: u };
       logLine(`Подсмотрел запрос письма: ${u.pathname}`);
-    } else if (u.pathname === '/api/v1/threads' || /\/api\/v1\/(threads|messages|letters)$/.test(u.pathname)) {
-      tryLearnListTemplate(u);
-    }
-
-    // Пытаемся определить папку по ответу (список писем содержит folder id/имя где-то рядом)
-    if (bodyText && u.pathname !== '/api/v1/threads/thread') {
+    } else if (bodyText) {
+      // Название пути у e.mail.ru заранее не знаем, поэтому НЕ гадаем по
+      // pathname — вместо этого смотрим на сам ответ: если это похоже на
+      // список писем (массив объектов с subject/from/date), считаем путь
+      // кандидатом на "список" и пробуем поймать offset-параметр на нём.
       try {
         const json = JSON.parse(bodyText);
         const arr = findMessageArray(json);
-        if (arr) rememberFolderFromRequest(u, arr.length);
+        if (arr) {
+          rememberFolderFromRequest(u, arr.length);
+          tryLearnListTemplate(u);
+        }
       } catch (e) { /* не JSON или частичный текст — пропускаем */ }
     }
     renderPanel();
@@ -638,7 +640,7 @@
   // Панель управления (UI)
   // ---------------------------------------------------------------------
 
-  let panelEl, logEl, foldersEl, statusEl;
+  let panelEl, logEl, foldersEl, statusEl, seenEl;
 
   function buildPanel() {
     panelEl = document.createElement('div');
@@ -664,6 +666,36 @@
           <button id="mks-resume">▶ Продолжить (после обновления токена)</button>
           <button id="mks-stop">⏹ Остановить всё</button>
         </div>
+
+        <details style="margin-bottom:6px;">
+          <summary style="cursor:pointer;">🔍 Замеченные запросы (диагностика)</summary>
+          <div id="mks-seen" style="margin-top:4px;"></div>
+        </details>
+
+        <details style="margin-bottom:6px;">
+          <summary style="cursor:pointer;">✍️ Задать шаблон списка писем вручную</summary>
+          <div style="margin-top:4px;">
+            <div style="color:#aaa;">Скопируй в DevTools (Network → Fetch/XHR) ссылку запроса, который
+              возвращает JSON со списком писем (вкладку удобно отфильтровать по "threads" или "list"),
+              и вставь сюда:</div>
+            <input id="mks-manual-list-url" type="text" placeholder="https://e.mail.ru/api/v1/..." style="width:100%;margin:4px 0;box-sizing:border-box;">
+            <div>
+              Параметр смещения (offset):
+              <select id="mks-manual-list-offset"></select>
+              Писем на странице: <input id="mks-manual-list-pagesize" type="number" value="20" style="width:50px;">
+            </div>
+            <button id="mks-manual-list-apply" style="margin-top:4px;">Применить</button>
+          </div>
+        </details>
+
+        <details style="margin-bottom:6px;">
+          <summary style="cursor:pointer;">✍️ Задать шаблон письма вручную</summary>
+          <div style="margin-top:4px;">
+            <input id="mks-manual-thread-url" type="text" placeholder="https://e.mail.ru/api/v1/threads/thread?..." style="width:100%;margin:4px 0;box-sizing:border-box;">
+            <button id="mks-manual-thread-apply">Применить</button>
+          </div>
+        </details>
+
         <div id="mks-log" style="background:#111;padding:4px;height:160px;overflow:auto;white-space:pre-wrap;"></div>
       </div>
     `;
@@ -672,12 +704,49 @@
     logEl = panelEl.querySelector('#mks-log');
     foldersEl = panelEl.querySelector('#mks-folders');
     statusEl = panelEl.querySelector('#mks-status');
+    seenEl = panelEl.querySelector('#mks-seen');
 
     panelEl.querySelector('#mks-debug').addEventListener('change', (e) => { state.debug = e.target.checked; });
     panelEl.querySelector('#mks-stop').addEventListener('click', () => { state.running = false; logLine('Остановлено пользователем.'); });
     panelEl.querySelector('#mks-resume').addEventListener('click', () => {
       state.paused = false;
       if (state.resumeResolve) { state.resumeResolve(); state.resumeResolve = null; }
+      renderPanel();
+    });
+
+    const manualListUrl = panelEl.querySelector('#mks-manual-list-url');
+    const manualListOffset = panelEl.querySelector('#mks-manual-list-offset');
+    manualListUrl.addEventListener('input', () => {
+      manualListOffset.innerHTML = '';
+      let u;
+      try { u = new URL(manualListUrl.value.trim(), location.href); } catch (e) { return; }
+      for (const [k, v] of u.searchParams.entries()) {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = `${k} = ${v}`;
+        if (/offset|skip|start|from|page/i.test(k)) opt.selected = true;
+        manualListOffset.appendChild(opt);
+      }
+    });
+    panelEl.querySelector('#mks-manual-list-apply').addEventListener('click', () => {
+      let u;
+      try { u = new URL(manualListUrl.value.trim(), location.href); } catch (e) { logLine('Не похоже на ссылку.'); return; }
+      const offsetParam = manualListOffset.value;
+      if (!offsetParam) { logLine('Не выбран параметр смещения — вставь ссылку заново, чтобы список параметров заполнился.'); return; }
+      const pageSize = Number(panelEl.querySelector('#mks-manual-list-pagesize').value) || 20;
+      state.listTemplate = { urlObj: u, offsetParam, limitParam: null, limitValue: pageSize };
+      classifyAndRemember(u.toString(), null); // заодно освежит token/ownEmail из этой ссылки
+      logLine(`Шаблон списка писем задан вручную: offset-параметр="${offsetParam}", размер страницы=${pageSize}`);
+      renderPanel();
+    });
+
+    panelEl.querySelector('#mks-manual-thread-apply').addEventListener('click', () => {
+      const raw = panelEl.querySelector('#mks-manual-thread-url').value.trim();
+      let u;
+      try { u = new URL(raw, location.href); } catch (e) { logLine('Не похоже на ссылку.'); return; }
+      state.threadTemplate = { urlObj: u };
+      classifyAndRemember(u.toString(), null);
+      logLine('Шаблон письма задан вручную.');
       renderPanel();
     });
 
@@ -736,6 +805,33 @@
     }
     if (state.folders.size === 0) {
       foldersEl.textContent = 'Папки появятся здесь, когда ты откроешь их в интерфейсе почты.';
+    }
+
+    renderSeenRequests();
+  }
+
+  function renderSeenRequests() {
+    if (!seenEl) return;
+    const byPath = new Map();
+    for (const entry of state.seenRequests) {
+      const cur = byPath.get(entry.pathname) || { count: 0, sample: entry.url };
+      cur.count++;
+      cur.sample = entry.url;
+      byPath.set(entry.pathname, cur);
+    }
+    if (byPath.size === 0) {
+      seenEl.textContent = 'Пока ничего не подслушано — открой папку с письмами.';
+      return;
+    }
+    seenEl.innerHTML = '';
+    for (const [path, info] of byPath.entries()) {
+      const row = document.createElement('div');
+      row.style.cssText = 'margin-bottom:4px;word-break:break-all;';
+      const isList = state.listTemplate && state.listTemplate.urlObj.pathname === path;
+      const isThread = path === '/api/v1/threads/thread';
+      const tag = isList ? ' [список ✅]' : (isThread ? ' [письмо ✅]' : '');
+      row.innerHTML = `<b>${path}</b>${tag} — ${info.count} шт.<br><span style="color:#888;">${info.sample.toString()}</span>`;
+      seenEl.appendChild(row);
     }
   }
 
