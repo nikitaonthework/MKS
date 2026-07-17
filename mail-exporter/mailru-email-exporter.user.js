@@ -30,6 +30,13 @@
 (function () {
   'use strict';
 
+  // Печатаем эту строку раньше вообще любого другого кода, чтобы по
+  // консоли (F12 -> Console) сразу было видно, что сам файл скрипта
+  // Tampermonkey реально загрузил и начал выполнять — если этой строки
+  // нет, дело не в логике ниже, а в том, что скрипт не подключился
+  // (выключен, не совпал @match, заблокирован CSP и т.п.).
+  console.log('%c[MKSMailExport] файл скрипта загружен, инициализация...', 'color:#4caf50;font-weight:bold;');
+
   const NS = 'MKSMailExport';
   if (window[NS]) return; // не инициализируем дважды при hot-reload SPA
   const state = {
@@ -481,30 +488,54 @@
   // IndexedDB — прогресс, чтобы можно было продолжить после перезагрузки
   // ---------------------------------------------------------------------
 
-  const dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('mks-mail-export', 1);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore('progress');
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  // IndexedDB открываем ЛЕНИВО (только при первом реальном обращении), а не
+  // на верхнем уровне скрипта: если IndexedDB в этом контексте недоступен
+  // (заблокирован политикой браузера/расширений), синхронный throw при
+  // индексации на верхнем уровне ронял бы весь скрипт ещё до отрисовки
+  // панели. При сбое тихо откатываемся на хранение прогресса в памяти
+  // вкладки (работает всё, кроме продолжения экспорта после перезагрузки).
+  const memoryStore = new Map();
+  let dbPromiseCache = null;
+
+  function openDb() {
+    if (dbPromiseCache) return dbPromiseCache;
+    dbPromiseCache = new Promise((resolve) => {
+      try {
+        const req = indexedDB.open('mks-mail-export', 1);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore('progress');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+    return dbPromiseCache;
+  }
 
   async function idbGet(key) {
-    const db = await dbPromise;
+    const db = await openDb();
+    if (!db) return memoryStore.get(key);
     return new Promise((resolve) => {
-      const tx = db.transaction('progress', 'readonly').objectStore('progress').get(key);
-      tx.onsuccess = () => resolve(tx.result);
-      tx.onerror = () => resolve(undefined);
+      try {
+        const tx = db.transaction('progress', 'readonly').objectStore('progress').get(key);
+        tx.onsuccess = () => resolve(tx.result);
+        tx.onerror = () => resolve(memoryStore.get(key));
+      } catch (e) { resolve(memoryStore.get(key)); }
     });
   }
 
   async function idbSet(key, value) {
-    const db = await dbPromise;
+    memoryStore.set(key, value);
+    const db = await openDb();
+    if (!db) return;
     return new Promise((resolve) => {
-      const tx = db.transaction('progress', 'readwrite').objectStore('progress').put(value, key);
-      tx.onsuccess = () => resolve();
-      tx.onerror = () => resolve();
+      try {
+        const tx = db.transaction('progress', 'readwrite').objectStore('progress').put(value, key);
+        tx.onsuccess = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (e) { resolve(); }
     });
   }
 
@@ -614,7 +645,7 @@
     panelEl.id = 'mks-mail-export-panel';
     panelEl.style.cssText = `
       position: fixed; right: 12px; bottom: 12px; width: 380px; max-height: 70vh;
-      background: #1e1e1e; color: #eee; font: 12px/1.4 monospace; z-index: 999999;
+      background: #1e1e1e; color: #eee; font: 12px/1.4 monospace; z-index: 2147483647;
       border: 1px solid #444; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
       display: flex; flex-direction: column; overflow: hidden;
     `;
@@ -636,7 +667,7 @@
         <div id="mks-log" style="background:#111;padding:4px;height:160px;overflow:auto;white-space:pre-wrap;"></div>
       </div>
     `;
-    document.documentElement.appendChild(panelEl);
+    (document.body || document.documentElement).appendChild(panelEl);
 
     logEl = panelEl.querySelector('#mks-log');
     foldersEl = panelEl.querySelector('#mks-folders');
@@ -712,12 +743,31 @@
   // Старт
   // ---------------------------------------------------------------------
 
-  installSniffer();
+  try {
+    installSniffer();
+  } catch (e) {
+    console.error('[MKSMailExport] не удалось установить перехват сети:', e);
+  }
+
+  function showFatalError(err) {
+    console.error('[MKSMailExport] критическая ошибка при запуске панели:', err);
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483647;' +
+      'background:#4a1111;color:#fff;font:12px monospace;padding:10px;border:1px solid #f55;' +
+      'border-radius:6px;max-width:340px;white-space:pre-wrap;';
+    box.textContent = '[MKSMailExport] Скрипт упал при запуске:\n' + (err && err.message ? err.message : String(err)) +
+      '\n\nОткрой консоль (F12 -> Console) и пришли текст ошибки.';
+    (document.body || document.documentElement).appendChild(box);
+  }
 
   function boot() {
-    buildPanel();
-    renderPanel();
-    logLine('Скрипт запущен. Открой папку и полистай письма, затем открой одно письмо — так скрипт увидит нужные запросы.');
+    try {
+      buildPanel();
+      renderPanel();
+      logLine('Скрипт запущен. Открой папку и полистай письма, затем открой одно письмо — так скрипт увидит нужные запросы.');
+    } catch (e) {
+      showFatalError(e);
+    }
   }
 
   if (document.readyState === 'loading') {
