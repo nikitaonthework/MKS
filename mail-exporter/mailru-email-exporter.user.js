@@ -234,8 +234,10 @@
       if (state.listTemplate.limitParam) skip.add(state.listTemplate.limitParam);
     }
     const key = [...u.searchParams.entries()].filter(([k]) => !skip.has(k)).map(([k, v]) => `${k}=${v}`).sort().join('&');
+    const folderParam = [...u.searchParams.entries()].find(([k]) => /^folder(_?id)?$/i.test(k));
+    const label = folderParam ? `папка ${folderParam[1]}` : (key || '(без параметров)');
     if (!state.folders.has(key)) {
-      state.folders.set(key, { sampleUrl: u, count, label: key || '(без параметров)' });
+      state.folders.set(key, { sampleUrl: u, count, label });
     } else {
       state.folders.get(key).count = count;
     }
@@ -368,7 +370,8 @@
     const html = findFieldDeep(msgJson, /^(html|bodyhtml|contenthtml)$/i);
     const text = findFieldDeep(msgJson, /^(text|bodytext|plain|contenttext)$/i);
     const msgIdRaw = findFieldDeep(msgJson, /^(messageid|message_id)$/i);
-    const attaches = findFieldDeep(msgJson, /^(attach(es|ments)?)$/i) || [];
+    const attachesRaw = findFieldDeep(msgJson, /^(attach(es|ments)?)$/i);
+    const attaches = Array.isArray(attachesRaw) ? attachesRaw : [];
 
     const date = parseDateSmart(dateRaw);
     const from = formatAddress(fromRaw) || (state.ownEmail || '');
@@ -406,7 +409,9 @@
 
     const attachParts = [];
     for (const att of msg.attaches) {
-      const b64 = await fetchAttachmentBase64(att);
+      if (!att || typeof att !== 'object') continue;
+      let b64;
+      try { b64 = await fetchAttachmentBase64(att); } catch (e) { b64 = null; }
       if (!b64) {
         logLine(`Вложение "${att.name || att.filename || '?'}" пропущено (нет ссылки на скачивание в ответе API)`);
         continue;
@@ -422,15 +427,17 @@
       );
     }
 
+    const textBody = typeof msg.text === 'string' ? msg.text : null;
+    const htmlBody = typeof msg.html === 'string' ? msg.html : null;
     const altBoundary = `----mks-alt-${Math.random().toString(16).slice(2)}`;
     const bodyParts = [];
-    if (msg.text) {
-      bodyParts.push(`--${altBoundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Wrap(utf8ToBase64(msg.text))}\r\n`);
+    if (textBody) {
+      bodyParts.push(`--${altBoundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Wrap(utf8ToBase64(textBody))}\r\n`);
     }
-    if (msg.html) {
-      bodyParts.push(`--${altBoundary}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Wrap(utf8ToBase64(msg.html))}\r\n`);
+    if (htmlBody) {
+      bodyParts.push(`--${altBoundary}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Wrap(utf8ToBase64(htmlBody))}\r\n`);
     }
-    if (!msg.text && !msg.html) {
+    if (!textBody && !htmlBody) {
       bodyParts.push(`--${altBoundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Wrap(utf8ToBase64('(тело письма не найдено в ответе API)'))}\r\n`);
     }
     const alternative = `--${boundary}\r\nContent-Type: multipart/alternative; boundary="${altBoundary}"\r\n\r\n` +
